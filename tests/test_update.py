@@ -323,45 +323,90 @@ class UpdateTests(unittest.TestCase):
             updates.rollback(state)
             environment = os.environ.copy()
             environment["PYTHONDONTWRITEBYTECODE"] = "0"  # Launcher must override it.
+            # A timer installed by a -c/runpy wrapper is lost at the launcher's
+            # real os.execvpe. An isolated user-site hook is imported by both
+            # interpreters, so a slow post-exec startup produces useful stacks
+            # without modifying the selected, integrity-checked source.
+            userbase = root / "child-python-diagnostics"
+            environment["PYTHONUSERBASE"] = str(userbase)
+            environment.pop("PYTHONNOUSERSITE", None)
+            site_query = subprocess.run([sys.executable, "-S", "-c",
+                                         "import json,site; print(json.dumps(site.getusersitepackages()))"],
+                                        env=environment, capture_output=True, text=True, check=True, timeout=10)
+            user_site = Path(json.loads(site_query.stdout))
+            self.assertIn(userbase.resolve(), user_site.resolve().parents)
+            user_site.mkdir(parents=True)
+            (user_site / "sitecustomize.py").write_text(
+                "import faulthandler\n"
+                "faulthandler.enable()\n"
+                "faulthandler.dump_traceback_later(15, repeat=True)\n", encoding="utf-8")
             process = subprocess.Popen([sys.executable, "-B", str(repository / "tools/launch.py"),
                                         "--state", str(state), "--config", str(config), "--foreground"],
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=environment)
             op = urllib.request.build_opener(urllib.request.ProxyHandler({}))
             base = "http://127.0.0.1:" + str(port)
+            started_at = time.monotonic()
+            child_output = None
+
+            def collect_child_output(stop=False):
+                nonlocal child_output
+                if child_output is None:
+                    if stop and process.poll() is None:
+                        process.terminate()  # Only the child created by this test.
+                    try:
+                        child_output = process.communicate(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        child_output = process.communicate(timeout=10)
+                return child_output
+
             try:
                 if os.name == "nt":
-                    # The original Windows model App is not integrated yet;
-                    # shared source selection must not start a substitute UI.
-                    stdout, stderr = process.communicate(timeout=10)
+                    # A Mac-only settings file cannot select a Windows project;
+                    # the launcher must fail safely without opening either UI.
+                    stdout, stderr = collect_child_output()
                     self.assertEqual(process.returncode, 1, stderr)
                     self.assertEqual(stdout, b"")
                     self.assertIn(b"Windows", stderr)
                     self.assertIn(b"update.py", stderr)
                 else:
                     session = None
-                    for attempt in range(100):
+                    last_error = "no response"
+                    deadline = started_at + 60
+                    while time.monotonic() < deadline:
                         try:
                             with op.open(base + "/api/session", timeout=0.2) as response:
                                 session = json.load(response)
                             break
-                        except OSError:
+                        except OSError as error:
+                            last_error = type(error).__name__
                             if process.poll() is not None:
                                 break
                             time.sleep(0.05)
-                    self.assertIsNotNone(session, process.stderr.read().decode() if process.poll() is not None else "console did not start")
+                    startup_elapsed = time.monotonic() - started_at
+                    if session is None:
+                        # Read pipes after terminating the child: reading a live
+                        # pipe can block forever and previously hid all stacks.
+                        stdout, stderr = collect_child_output(stop=True)
+                        self.fail("baseline console did not become ready after %.2fs; exit=%s; last=%s\n"
+                                  "child stdout:\n%s\nchild stderr/stacks:\n%s" %
+                                  (startup_elapsed, process.returncode, last_error,
+                                   stdout.decode("utf-8", errors="replace"),
+                                   stderr.decode("utf-8", errors="replace")))
                     self.assertEqual(session["service"], "local-ai-console")
                     request = urllib.request.Request(base + "/api/shutdown", data=b"{}",
                                                       headers={"Content-Type": "application/json", "X-Local-CSRF": session["csrf"]})
                     with op.open(request, timeout=2) as response:
                         self.assertEqual(response.status, 200)
-                    process.communicate(timeout=10)
+                    stdout, stderr = collect_child_output()
+                    if stderr:
+                        print("baseline child startup %.2fs; stderr/stacks:\n%s" %
+                              (startup_elapsed, stderr.decode("utf-8", errors="replace")), file=sys.stderr)
                     self.assertEqual(process.returncode, 0)
                 self.assertFalse(list((state / "baseline").rglob("__pycache__")))
                 updates._verified_receipt(state, "baseline")
             finally:
-                if process.poll() is None:
-                    process.terminate()
-                    process.communicate(timeout=10)
+                collect_child_output(stop=True)
                 process.stdout.close()
                 process.stderr.close()
 

@@ -41,6 +41,7 @@
   "tests/test_windows_launcher.py",
   "tests/windows/Render-ConsolePreview.ps1",
   "tests/windows/Verify-Console.ps1",
+  "tests/windows/Verify-SharedLauncher.py",
   "tools/Check-Updates.command",
   "tools/LICENSE",
   "tools/Launch-Mac.command",

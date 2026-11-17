@@ -43,6 +43,7 @@ try {
     $content = $window.Content
     $window.Content = $null
     $root = [Windows.Controls.Grid]::new()
+    $root.Resources = $window.Resources
     $root.Width=980; $root.Height=900; $root.Background=[Windows.Media.Brushes]::White
     $top = [Windows.Controls.RowDefinition]::new(); $top.Height=[Windows.GridLength]::new(40)
     $body = [Windows.Controls.RowDefinition]::new(); $body.Height=[Windows.GridLength]::new(860)

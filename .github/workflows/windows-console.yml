@@ -4,15 +4,25 @@ on:
   pull_request:
 permissions:
   contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   native-console:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - name: Build WPF and run isolated PowerShell 5.1 checks
         shell: powershell
         run: .\tests\windows\Verify-Console.ps1 -OutputDirectory "$env:RUNNER_TEMP\windows-console-evidence"
+      - name: Verify shared Windows launcher real build and cache isolation
+        shell: powershell
+        run: python .\tests\windows\Verify-SharedLauncher.py --output-dir "$env:RUNNER_TEMP\windows-console-evidence"
       - name: Keep native checks and labelled offline WPF preview
         if: always()
         uses: actions/upload-artifact@v4
