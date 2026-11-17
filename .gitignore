@@ -1,0 +1,35 @@
+# Local credentials and configuration
+.env
+.env.*
+!.env.example
+**/frp/*.toml
+**/frp/*.toml.*
+!**/frp/frpc.example.toml
+api-key.txt
+frpc-visitor.toml
+管理员登录信息.txt
+
+# Generated runtimes, state, logs, exports and backups
+**/bin/
+**/logs/
+**/secrets/
+**/backups/
+**/data/
+**/postgres_data/
+**/redis_data/
+*.pid
+*.log
+*.zip
+*.exe
+*.dll
+*.db
+*.dump
+*.sql
+*.bak
+*.tmp
+
+# Editor/OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

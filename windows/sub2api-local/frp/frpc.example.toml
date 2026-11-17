@@ -1,0 +1,19 @@
+# Copy using Init-Sub2API.cmd. Fill in the existing frps address and token locally.
+serverAddr = "frps.example.com"
+serverPort = 7000
+loginFailExit = false
+auth.method = "token"
+auth.token = "CHANGE_ME_FRPS_TOKEN"
+transport.tls.enable = true
+log.level = "info"
+log.disablePrintColor = true
+log.to = "logs/frpc.log"
+log.maxDays = 7
+
+[[proxies]]
+name = "sub2api_ke"
+type = "stcp"
+secretKey = "CHANGE_ME_STCP_SECRET"
+localIP = "127.0.0.1"
+localPort = 8080
+transport.useEncryption = true
