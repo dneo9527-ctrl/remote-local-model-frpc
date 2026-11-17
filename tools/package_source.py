@@ -22,7 +22,7 @@ def build(destination):
             path=ROOT/name
             if path.is_symlink() or not path.is_file() or ROOT not in path.resolve().parents:
                 raise ValueError('Not a regular audited source file: '+name)
-            mode=0o755 if name.endswith('.command') else 0o644
+            mode=0o755 if name.endswith('.command') or name in {'tools/launch.py', 'tools/update.py'} else 0o644
             info=zipfile.ZipInfo('remote-local-model-frpc/'+name,(2026,11,17,0,0,0))
             info.external_attr=(stat.S_IFREG|mode)<<16
             info.compress_type=zipfile.ZIP_DEFLATED

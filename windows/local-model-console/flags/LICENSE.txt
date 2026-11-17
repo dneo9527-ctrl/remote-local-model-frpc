@@ -1,0 +1,23 @@
+Country flag images
+
+Files: CN.png, DE.png, GB.png, HK.png, JP.png, SG.png, US.png.
+Source: https://flagcdn.com/w40/<lowercase-country-code>.png
+Provider: FlagCDN, a service by Flagpedia.net, based on Wikimedia Commons vectors.
+Provider download and usage statement: https://flagpedia.net/download
+
+The provider states that these country flag images are completely free for
+commercial and non-commercial use (public domain), and explicitly permits
+use in software and mobile applications. This statement covers the images;
+it is not a claim that Flagpedia website text or all repository code is MIT.
+
+All seven bundled files were compared byte for byte with the provider on
+2026-11-18 and matched. No image has been replaced or relabelled as MIT.
+
+SHA-256 of the bundled PNG files:
+5963de4e9e57e0371ec9c66e5f138d82d317081cc63f980d92ab199bdbf6c3ed  CN.png
+4bf08b86243b0c5d79c196728100dd278a398ab57edaf56c871fceb9d879dbeb  DE.png
+e2e39a14b87527ab4893d3f17510fcf2d12c6078f15289a2289a6b96da0d7098  GB.png
+1d144d25e1862fc6ef5f69b428fa58c99c69bce509a91640ab073030b2f4e773  HK.png
+ec7131f162be04e0c5ef2680ef5bd4b433e482f20913bab1fe9ae9f748ec3693  JP.png
+c7e9a2be7a778650f8c11e0335b4ec070a4b2aba048abb726b27e69ccfe8b0dd  SG.png
+09dd59a3417221f62c23c3abb37e9b598357502643a0ea9ad6561a50b2dcc1dc  US.png
