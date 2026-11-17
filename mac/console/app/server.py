@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import secrets
 import signal
+import socketserver
 import subprocess
 import sys
 import threading
@@ -25,6 +26,15 @@ from .core import FileLock, Tunnel, UserError, opener, port_open, probe, write_j
 from .releases import REPOSITORY, UpdateError, discover
 
 WEB = Path(__file__).with_name("web")
+
+
+class LocalHTTPServer(ThreadingHTTPServer):
+    def server_bind(self):
+        # A loopback-only panel does not need reverse DNS. HTTPServer otherwise
+        # calls getfqdn here, blocking startup on hosts with slow DNS resolution.
+        socketserver.TCPServer.server_bind(self)
+        self.server_name = "127.0.0.1"
+        self.server_port = self.server_address[1]
 
 
 class Controller:
@@ -299,7 +309,7 @@ def serve(config_path):
     controller = Controller(config_path)
     lock = FileLock(controller.runtime / "data/console.lock")
     port = controller.config.get("port", 18765)
-    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    server = LocalHTTPServer(("127.0.0.1", port), Handler)
     server.daemon_threads = True
     server.controller = controller
     server.authority = f"127.0.0.1:{port}"

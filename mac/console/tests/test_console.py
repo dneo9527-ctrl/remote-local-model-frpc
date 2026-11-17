@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 from app.configuration import CodexConfig, merge
 from app.core import FileLock, Tunnel, UserError, port_open
-from app.server import Controller, Handler
+from app.server import Controller, Handler, LocalHTTPServer
 
 
 class ConfigTests(unittest.TestCase):
@@ -173,9 +173,9 @@ class Upstream(BaseHTTPRequestHandler):
 class HttpTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.up = ThreadingHTTPServer(('127.0.0.1',0), Upstream)
+        cls.up = LocalHTTPServer(('127.0.0.1',0), Upstream)
         threading.Thread(target=cls.up.serve_forever,daemon=True).start()
-        cls.server = ThreadingHTTPServer(('127.0.0.1',0), Handler)
+        cls.server = LocalHTTPServer(('127.0.0.1',0), Handler)
         cls.server.authority = f'127.0.0.1:{cls.server.server_port}'
         cls.server.token = 'csrf-fixture'
         cls.server.controller = type('TestController', (), {'config': {'ollama': {'url':f'http://127.0.0.1:{cls.up.server_port}'}}})()
@@ -204,6 +204,16 @@ class HttpTests(unittest.TestCase):
                              ({'Content-Type':'application/json'},b'{}')]:
             with self.assertRaises(urllib.error.HTTPError) as e:self.request('/api/action',data,headers)
             self.assertEqual(e.exception.code,403)
+
+    def test_loopback_bind_works_when_reverse_dns_is_unavailable(self):
+        with patch('socket.getfqdn', side_effect=OSError('DNS unavailable')) as lookup:
+            server = LocalHTTPServer(('127.0.0.1', 0), Handler)
+            try:
+                self.assertEqual(server.server_address[0], '127.0.0.1')
+                self.assertGreater(server.server_port, 0)
+                lookup.assert_not_called()
+            finally:
+                server.server_close()
 
     def test_stream_interruption_reported_without_request_replay(self):
         before=Upstream.posts

@@ -48,7 +48,7 @@ def verify(output):
         if os.name != "nt":
             raise RuntimeError("Native Windows is required; this check does not simulate a compiler on other platforms.")
         with tempfile.TemporaryDirectory(prefix="local-ai-shared-launcher-") as folder:
-            temporary = Path(folder)
+            temporary = Path(folder).resolve()
             state = temporary / "updates"
             register_baseline(state, REPOSITORY)
             source = state / "baseline"
