@@ -35,7 +35,13 @@ def source_zip(version="0.2.0-preview.1", extra=None):
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
         for name, content in files.items():
-            archive.writestr(PROJECT + "/" + name, content)
+            # ZipInfo construction normalizes Windows backslashes and NULs.
+            # Retain the exact supplied spelling to exercise hostile archives
+            # identically on every runner, including Windows.
+            info = zipfile.ZipInfo(PROJECT + "/fixture")
+            info.filename = info.orig_filename = PROJECT + "/" + name
+            info.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(info, content)
     return output.getvalue()
 
 
@@ -147,7 +153,7 @@ class UpdateTests(unittest.TestCase):
             updates._asset(release, release["assets"][1]["name"], "0.2.0-preview.1")
 
     def test_unsafe_zip_paths_and_private_files(self):
-        names = ["../escape", "/escape", "C:/escape", "a\\escape", "data/private.txt", "logs/a.log",
+        names = ["../escape", "/escape", "C:/escape", "a\\escape", "a\x00hidden", "data/private.txt", "logs/a.log",
                  "config/settings.json", "windows/sub2api-local/.env", "frp/frpc.toml", "CON.txt",
                  "a./file", "private.key"]
         for name in names:
@@ -261,30 +267,41 @@ class UpdateTests(unittest.TestCase):
             op = urllib.request.build_opener(urllib.request.ProxyHandler({}))
             base = "http://127.0.0.1:" + str(port)
             try:
-                session = None
-                for attempt in range(100):
-                    try:
-                        with op.open(base + "/api/session", timeout=0.2) as response:
-                            session = json.load(response)
-                        break
-                    except OSError:
-                        if process.poll() is not None:
+                if os.name == "nt":
+                    # The original Windows model App is not integrated yet;
+                    # shared source selection must not start a substitute UI.
+                    stdout, stderr = process.communicate(timeout=10)
+                    self.assertEqual(process.returncode, 1, stderr)
+                    self.assertEqual(stdout, b"")
+                    self.assertIn(b"Windows", stderr)
+                    self.assertIn(b"update.py", stderr)
+                else:
+                    session = None
+                    for attempt in range(100):
+                        try:
+                            with op.open(base + "/api/session", timeout=0.2) as response:
+                                session = json.load(response)
                             break
-                        time.sleep(0.05)
-                self.assertIsNotNone(session, process.stderr.read().decode() if process.poll() is not None else "console did not start")
-                self.assertEqual(session["service"], "local-ai-console")
-                request = urllib.request.Request(base + "/api/shutdown", data=b"{}",
-                                                  headers={"Content-Type": "application/json", "X-Local-CSRF": session["csrf"]})
-                with op.open(request, timeout=2) as response:
-                    self.assertEqual(response.status, 200)
-                process.communicate(timeout=10)
-                self.assertEqual(process.returncode, 0)
+                        except OSError:
+                            if process.poll() is not None:
+                                break
+                            time.sleep(0.05)
+                    self.assertIsNotNone(session, process.stderr.read().decode() if process.poll() is not None else "console did not start")
+                    self.assertEqual(session["service"], "local-ai-console")
+                    request = urllib.request.Request(base + "/api/shutdown", data=b"{}",
+                                                      headers={"Content-Type": "application/json", "X-Local-CSRF": session["csrf"]})
+                    with op.open(request, timeout=2) as response:
+                        self.assertEqual(response.status, 200)
+                    process.communicate(timeout=10)
+                    self.assertEqual(process.returncode, 0)
                 self.assertFalse(list((state / "baseline").rglob("__pycache__")))
                 updates._verified_receipt(state, "baseline")
             finally:
                 if process.poll() is None:
                     process.terminate()
                     process.communicate(timeout=10)
+                process.stdout.close()
+                process.stderr.close()
 
 
 if __name__ == "__main__":

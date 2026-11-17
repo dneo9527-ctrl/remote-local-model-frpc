@@ -101,6 +101,8 @@ try {
     Invoke-Sub2ApiLock {
         & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $child
         Assert-True ($LASTEXITCODE -eq 23) 'Concurrent deployment operation was accepted.'
+        # The child is expected to fail; do not leak its exit code to the CI shell.
+        $global:LASTEXITCODE = 0
     }
     Invoke-Sub2ApiLock { $script:passed++ }
     Write-Host ('Windows regression checks passed: ' + $passed)

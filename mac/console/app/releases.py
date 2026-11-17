@@ -176,6 +176,11 @@ def extract_source(archive, destination, version):
         if len(entries) > MAX_FILES:
             raise UpdateError("源码包文件数量超过限制。")
         for entry in entries:
+            # ZipInfo normalizes backslashes on Windows and truncates NULs on
+            # every platform. Validate the original archive spelling too, so
+            # a malformed member cannot turn into an accepted source path.
+            if entry.orig_filename != entry.filename:
+                raise UpdateError("源码包包含不安全路径。")
             name = entry.filename.rstrip("/") if entry.is_dir() else entry.filename
             path = _safe_relative(name)
             if len(path.parts) < 2 or path.parts[0] != PROJECT:
