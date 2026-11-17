@@ -1,0 +1,8 @@
+{
+  "SchemaVersion": 1,
+  "Routes": [
+    {"Name": "示例线路 A", "Address": "192.0.2.10", "Region": "海外", "CountryCode": "US", "Location": "填写实际州/城市"},
+    {"Name": "示例线路 B", "Address": "198.51.100.20", "Region": "国内", "CountryCode": "CN", "Location": "填写实际省/城市"},
+    {"Name": "示例线路 C", "Address": "203.0.113.30", "Region": "国内", "CountryCode": "CN", "Location": "填写实际省/城市"}
+  ]
+}

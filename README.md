@@ -2,7 +2,10 @@
 
 远程本地模型部署与 frp：Windows 服务端与 Mac 接收端，独立分支协作开发。
 
-当前 `windows` 分支提供 **Windows 本地 Sub2API + Docker Compose + frp STCP 服务端**。Sub2API 通过上游账号池提供 API；本目录是部署与管理脚本，应用本体使用上游 Docker 镜像。Windows 端只监听 `127.0.0.1:8080`，通过已有公网 frps 提供 STCP 转发。
+当前 `windows` 分支提供两部分 Windows 源码：
+
+- [原“本地模型控制台 / VPS 切换”面板](windows/local-model-console/README.md)：C# / WPF 完整界面、PowerShell 后端、国旗资源、构建/检查脚本和无秘密配置示例。Windows 原生运行；Mac 可编辑并据此整合共享界面，见 [Mac 交接](windows/local-model-console/MAC_HANDOFF.md)。
+- **Windows 本地 Sub2API + Docker Compose + frp STCP 服务端**：Sub2API 通过上游账号池提供 API；部署与管理脚本使用上游 Docker 镜像。Windows 端只监听 `127.0.0.1:8080`，通过已有公网 frps 提供 STCP 转发。
 
 Windows 端入口：[windows/sub2api-local/README.md](windows/sub2api-local/README.md)。包含配置模板、初始化、frpc 下载，以及启动、停止、状态检查脚本。
 

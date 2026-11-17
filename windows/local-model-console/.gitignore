@@ -1,0 +1,12 @@
+/LocalAI-Control.exe
+/app.ico
+/fixtures/
+/ui-regression/
+/switch-recovery-fixtures-*/
+/config/
+/state/
+/logs/
+/bin/
+*.previous
+*.bak
+*.tmp
