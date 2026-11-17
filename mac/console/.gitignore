@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.venv/
+evidence/
+ag-*/
+ag-task.txt
+sub2api-current-handoff.json
+*review*.json
+private/
+data/
+logs/
+backups/
+dist/
+local-config.json
+.DS_Store

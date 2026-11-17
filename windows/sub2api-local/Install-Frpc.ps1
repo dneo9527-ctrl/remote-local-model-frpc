@@ -1,4 +1,6 @@
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'Tunnel.ps1')
+Invoke-Sub2ApiLock {
 $version = '0.72.0'
 $archiveName = "frp_${version}_windows_amd64.zip"
 $url = "https://github.com/fatedier/frp/releases/download/v$version/$archiveName"
@@ -36,4 +38,5 @@ try {
         [IO.Path]::GetFileName($resolvedTemporary) -match '^sub2api-frp-[a-f0-9]{32}$') {
         Remove-Item -LiteralPath $resolvedTemporary -Recurse -Force
     }
+}
 }

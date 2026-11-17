@@ -33,3 +33,15 @@ frpc-visitor.toml
 Thumbs.db
 .idea/
 .vscode/
+
+# Mac console and release work
+__pycache__/
+*.py[cod]
+**/config/settings.json
+**/config/routes/
+**/config/ollama-routes/
+**/dist/
+**/evidence/
+**/ag-*/
+*handoff*.json
+**/updates/

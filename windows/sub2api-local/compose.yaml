@@ -214,7 +214,7 @@ services:
   # PostgreSQL Database
   # ===========================================================================
   postgres:
-    image: postgres:18-alpine
+    image: postgres:18-alpine@sha256:b6972e1115a4ff8eba5d7f7d19184926d1e16d7d1136ae1e1a7ebf286da0f015
     container_name: sub2api-postgres
     restart: unless-stopped
     ulimits:
@@ -245,7 +245,7 @@ services:
   # Redis Cache
   # ===========================================================================
   redis:
-    image: redis:8-alpine
+    image: redis:8-alpine@sha256:7958cfbb9d152f87dadfbc89f1b0b15938f0b81ff8982feb327476f4911935c3
     container_name: sub2api-redis
     restart: unless-stopped
     ulimits:

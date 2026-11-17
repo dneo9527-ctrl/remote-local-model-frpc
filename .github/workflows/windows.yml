@@ -1,0 +1,14 @@
+name: Windows deployment checks
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  powershell-51:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Native Windows parsing, initialization, ACL and lifecycle guards
+        shell: powershell
+        run: .\windows\sub2api-local\tests\Verify-Windows.ps1

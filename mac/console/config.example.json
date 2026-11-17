@@ -1,0 +1,19 @@
+{
+  "runtime": "/absolute/private/local-ai-console",
+  "port": 18765,
+  "github_repository": "dneo9527-ctrl/remote-local-model-frpc",
+  "update_channel": "preview",
+  "apps": {
+    "cherry": ""
+  },
+  "ollama": {
+    "url": "http://127.0.0.1:11435",
+    "python": "",
+    "manager": "",
+    "launchd_label": "",
+    "visitor_config": "",
+    "log_directory": ""
+  },
+  "selected_model_route": "",
+  "ollama_routes": {}
+}

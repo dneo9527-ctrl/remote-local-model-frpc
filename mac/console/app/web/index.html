@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>本地模型连接</title><link rel="stylesheet" href="/style.css"><script src="/console.js" defer></script></head>
+<body><header><div class="brand">LOCAL AI <span>/ MAC 接收端</span></div><div class="heading"><div><h1>本地模型连接</h1><p>Windows 运行模型 · Mac 连接与聊天</p></div><span class="badge" id="version">正在检查</span></div></header>
+<main class="core-shell">
+<section class="card connection-card"><div class="card-title"><span class="symbol">⇄</span><h2>Windows 模型</h2><button class="switch" role="switch" aria-checked="false" aria-label="模型连接开关" id="ollama-toggle" disabled><span></span></button></div><strong id="ollama-state">正在检查</strong><p id="ollama-detail">正在读取连接状态</p><code id="ollama-url">http://127.0.0.1:11435</code></section>
+<section class="panel"><div class="section-head"><h2>VPS 线路</h2><button class="text-button" id="refresh">↻ 刷新</button></div><div class="route-row"><label for="model-route">当前线路</label><select id="model-route" aria-label="VPS 线路" disabled><option value="">读取中…</option></select><button class="secondary" id="change-route" disabled>切换线路</button></div><p class="muted">Windows 和 Mac 需选择同一 VPS。切换会中断当前连接，请在回答结束后操作。</p></section>
+<section><div class="section-head"><h2>开始聊天</h2></div><div class="app-grid"><button class="app-button" id="cherry"><span class="app-icon cherry">C</span><span><b>Cherry Studio</b><small>使用已有模型与会话</small></span><span>↗</span></button><a class="app-button" href="/chat" target="_blank" rel="noopener"><span class="app-icon web">W</span><span><b>网页聊天</b><small>选模型 · 流式回答</small></span><span>↗</span></a></div></section>
+<div id="message" class="message" role="status" aria-live="polite">正在读取状态…</div>
+<details class="management"><summary>管理 · 更新与日志</summary><div class="actions"><button class="secondary" id="updates">检查更新</button><a class="secondary" href="https://github.com/dneo9527-ctrl/remote-local-model-frpc/releases" target="_blank" rel="noopener noreferrer">版本下载 ↗</a><button class="secondary" id="logs">查看日志</button><button class="secondary" id="quit">退出控制台</button></div><p class="muted">更新保留旧版和私人配置。退出此页不会停止独立运行的模型连接。</p></details>
+<footer><span>仅本机访问 · 模型在 Windows · 请求中断不自动重放</span></footer>
+</main></body></html>

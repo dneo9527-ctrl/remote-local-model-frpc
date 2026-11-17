@@ -6,13 +6,13 @@
 
 - Windows 10/11 x64、Windows PowerShell 5.1、Docker Desktop（Linux containers + Compose v2）。
 - 已有可用的 frps，控制端口、认证方式与本地配置一致，允许 STCP。
-- `compose.yaml`：Sub2API 固定镜像摘要，PostgreSQL 18 Alpine、Redis 8 Alpine，使用 Docker 命名卷。
+- `compose.yaml`：Sub2API 固定镜像摘要，PostgreSQL 18 Alpine、Redis 8 Alpine 均固定镜像摘要，使用 Docker 命名卷。
 - `.env.example`、`frp/frpc.example.toml`：不含真实凭据的模板。
 - `Init-Sub2API.cmd`：生成本机随机凭据；已有 `.env` 和 `frp/frpc.toml` 会保留。
 - `Install-Frpc.cmd`：从 frp 官方 Release 下载 Windows x64 0.72.0，核对固定 SHA-256 后安装到 `bin/frpc.exe`。
 - `Start-Sub2API.cmd`、`Stop-Sub2API.cmd`、`Status-Sub2API.cmd`：启动、停止与检查。
 
-仓库只包含 Windows 部署代码和模板。应用源码在 [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api)，不包含当前电脑的账号池、数据库、运行时二进制或 Mac 客户端。
+本目录只包含 Windows 部署代码和模板。Mac 接收端及共享控制台由仓库其他目录维护。应用源码在 [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api)，不包含当前电脑的账号池、数据库或运行时二进制。
 
 ## 全新 Windows 部署
 
@@ -30,7 +30,7 @@
 5197c1b69564089cdc229fc1260a0e25db1e722b1b7db45fe1542c3c43edf9ae
 ```
 
-本项目默认固定使用应用端口 `8080`，frp `localPort` 和启动脚本健康检查使用相同端口。更改端口时须同时修改 `.env`、frpc 配置及 Start/Status 脚本中的 URL。保持 `BIND_HOST=127.0.0.1`；数据库和 Redis 不发布宿主机端口。
+本项目固定使用 `127.0.0.1:8080`，frp `localPort` 和脚本健康检查使用相同端口。启动前会检查 Docker Compose 的**实际展开配置**，拒绝公开绑定、其他应用端口及数据库/Redis 宿主端口，包括 Shell 环境变量带来的覆盖。配置文件、`.env` 和 Compose 项目名均明确传入 Docker，不使用无关的 `COMPOSE_FILE` / `COMPOSE_PROJECT_NAME` Shell 设置。不要仅修改一个端口值；需要改端口时先统一变更并重新验收。
 
 ## 已有部署继续维护
 
@@ -49,9 +49,9 @@
 .\Stop-Sub2API.ps1
 ```
 
-启动/停止只管理此目录专属 frpc 的完整程序路径与配置路径，保留其他项目的 frp 进程。停止使用 `docker compose stop`，保留全部数据卷；不要执行 `docker compose down -v`，它会删除卷数据。
+初始化、安装、启动和停止通过此目录专属的 Windows 命名 Mutex 互斥；并发操作会明确拒绝，进程异常退出后锁会释放。启动/停止只管理此目录专属 frpc 的完整程序路径、完整 `-c` 配置参数及创建时间，保留其他项目的 frp 进程。新建凭据文件会在写入前移除继承 ACL，只允许当前 Windows 用户和 SYSTEM；已有配置和 ACL 不会被重新初始化覆盖。停止使用 `docker compose stop`，保留全部数据卷；不要执行 `docker compose down -v`，它会删除卷数据。
 
-frpc 日志在 `logs/frpc.log`。`Status` 用来确认容器、健康接口和项目隧道进程；frps 注册是否成功应查看日志中的 `login to server success` / `start proxy success` 等记录，进程存在并不等于远程已连通。
+frpc 日志在 `logs/frpc.log`。`Status` 用来确认容器、健康接口和项目隧道进程，默认不把原始日志打印到共享终端；frps 注册是否成功应查看日志中的 `login to server success` / `start proxy success` 等记录，进程存在并不等于远程已连通。
 
 容器设置 `restart: unless-stopped`，Docker 引擎运行时可恢复；本项目未安装 Windows 启动任务或服务。重启 Windows 后运行 `Start-Sub2API.cmd`。提供远程服务时 Windows 需保持开机、联网且不休眠。frpc 可重连网络，但脚本不是进程崩溃后的后台看守。
 
@@ -81,3 +81,17 @@ provider 配置启用 `transport.tls.enable=true` 和 `transport.useEncryption=t
 这些检查在隔离目录执行，未从仓库副本启动容器或隧道，运行中的旧目录未被改写。历史部署验证用的凭据与结果原文不上传。
 
 上游来源和许可证见 [THIRD-PARTY.md](THIRD-PARTY.md)。
+
+## 本次统一整合的回归检查
+
+运行：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\Verify-Windows.ps1
+```
+
+该测试在唯一临时目录实际执行初始化，检查随机凭据彼此独立、受限 ACL、重复初始化字节不变、跨进程互斥；用内存假进程/Compose 结果检查完整进程身份、停止隔离、有效回环绑定。它不启动 Docker、隧道或上游模型，不读取现有部署的密钥。GitHub 的 `Windows deployment checks` 使用原生 Windows PowerShell 5.1 运行，具体提交的 CI 结果才是本次通过凭据。
+
+此次代码还固定了 PostgreSQL、Redis 镜像摘要；摘要读取自 Docker Hub 官方 tag API（2026-11-17），见 THIRD-PARTY.md。固定版本是候选源码的可重复部署约定，**没有在用户的 Windows 上拉取镜像、升级数据库或重启服务**。现有部署升级前仍须单独备份命名卷，检查上游兼容性。旧的部署验证与新回归测试不能互相替代。
+
+本目录没有独立 Windows 图形面板；`.cmd` 是终端入口，Sub2API 网页由上游镜像提供。共享控制台的 Windows runner 截图也不等同于用户这台 Windows 上的服务实机验收。
