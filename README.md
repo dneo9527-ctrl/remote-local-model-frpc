@@ -11,6 +11,8 @@ Mac 首页只保留连接开关、VPS 线路、Cherry Studio 和网页聊天；�
 | Windows Sub2API 扩展 | [windows/sub2api-local](windows/sub2api-local) | 独立 Docker/STCP 部署脚本，非本地模型推理服务 |
 | 双端更新 | [tools](tools) | 稳定/预览查询、校验下载、源码选择与回退；不覆盖配置或重启模型 |
 
+![Mac 核心界面](docs/screenshots/mac-core.jpg)
+
 [操作步骤](docs/操作步骤.md) · [双端维护与更新](docs/维护与更新.md) · [验收状态](docs/验收.md) · [GitHub 发布](https://github.com/dneo9527-ctrl/remote-local-model-frpc/releases)
 
 ## 运行与连接

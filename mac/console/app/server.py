@@ -61,7 +61,7 @@ class Controller:
                 active_provider = tomllib.loads(self.codex.path.read_text()).get("model_provider", "openai")
         except Exception:
             pass
-        return {"version": VERSION, "platform": sys.platform,
+        result = {"version": VERSION, "platform": sys.platform,
                 "role": self.config.get("role", "mac-receiver"),
                 "model_routes": [{"id": k, "name": v.get("name", k)}
                                  for k, v in self.config.get("ollama_routes", {}).items()],
@@ -80,13 +80,15 @@ class Controller:
                 "github_configured": bool(self.config.get("github_repository")),
                 "notice": "Windows 负责推理；Mac 只管理连接。接口在线不等于模型已验收。"}
 
+        if not legacy:
+            for key in ("sub2api", "routes", "selected_route", "codex_provider", "codex_plan"):
+                result.pop(key, None)
+        return result
+
     def action(self, service, action):
         with self.lock:
             if service == "model-route":
-                message = switch_route(self, action)
-                self.config["selected_model_route"] = action
-                write_json(self.config_path, self.config)
-                return message
+                return switch_route(self, action)
             if service == "route":
                 profiles = self.config.get("sub2api_profiles", {})
                 if action not in profiles:

@@ -13,8 +13,8 @@ function Write-NewLocalFile([string]$Path, [string]$Content) {
     $temporary = $Path + '.new-' + [Guid]::NewGuid().ToString('N')
     $stream = $null
     try {
-        $stream = [IO.File]::Open($temporary, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
-        # Restrict the new empty file before writing any secret bytes.
+        # Supply the protected DACL at creation. A write-only File.Open handle
+        # does not have WRITE_DAC, so SetAccessControl on it fails on Windows.
         $acl = New-Object Security.AccessControl.FileSecurity
         $acl.SetAccessRuleProtection($true, $false)
         $user = [Security.Principal.WindowsIdentity]::GetCurrent().User
@@ -22,7 +22,10 @@ function Write-NewLocalFile([string]$Path, [string]$Content) {
         $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($user, 'FullControl', 'Allow')))
         $system = New-Object Security.Principal.SecurityIdentifier('S-1-5-18')
         $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($system, 'FullControl', 'Allow')))
-        $stream.SetAccessControl($acl)
+        $stream = [IO.FileStream]::new(
+            $temporary, [IO.FileMode]::CreateNew,
+            [Security.AccessControl.FileSystemRights]::Write,
+            [IO.FileShare]::None, 4096, [IO.FileOptions]::WriteThrough, $acl)
         $stream.Write($bytes, 0, $bytes.Length)
         $stream.Flush($true)
         $stream.Dispose()

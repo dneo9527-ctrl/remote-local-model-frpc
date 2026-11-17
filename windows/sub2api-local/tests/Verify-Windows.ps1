@@ -36,10 +36,14 @@ try {
     foreach ($file in @($envFile, $frpFile)) {
         $acl = Get-Acl -LiteralPath $file
         Assert-True $acl.AreAccessRulesProtected 'New private file retained inherited ACLs.'
-        $allowed = @([Security.Principal.WindowsIdentity]::GetCurrent().User.Value, 'S-1-5-18')
+        $currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        $allowed = @($currentSid, 'S-1-5-18')
+        Assert-True ($acl.Access.Count -eq 2) 'Private file ACL is missing a required principal.'
+        Assert-True ($acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -eq $currentSid) 'Private file owner is not the current user.'
         foreach ($rule in $acl.Access) {
             $sid = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
             Assert-True ($sid -in $allowed) 'New private file grants access to another principal.'
+            Assert-True (-not $rule.IsInherited -and $rule.AccessControlType -eq 'Allow' -and $rule.FileSystemRights -eq 'FullControl') 'Private file ACL is not an explicit FullControl allow rule.'
         }
     }
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $temporary 'Init-Sub2API.ps1') | Out-Null

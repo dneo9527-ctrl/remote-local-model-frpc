@@ -44,6 +44,8 @@ def main():
             if args.show_source:
                 print(json.dumps({"source": str(source), "started": False}, ensure_ascii=False))
                 return 0
+            if os.name == "nt":
+                raise UpdateError("Windows 原模型 App 尚待合入此启动器。请继续使用原 App；update.py 可独立检查和下载共享源码。")
             environment = os.environ.copy()
             environment["PYTHONDONTWRITEBYTECODE"] = "1"
             # Prevent an inherited Python module path from replacing this source.
