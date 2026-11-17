@@ -80,6 +80,68 @@ def register_test_baseline(state):
 
 
 class UpdateTests(unittest.TestCase):
+    def test_repository_baseline_keeps_native_windows_build_inputs(self):
+        repository = MODULE.parents[3]
+        expected = {
+            "windows/local-model-console/LocalAI-Control.cs",
+            "windows/local-model-console/LocalAI.UI.xaml",
+            "windows/local-model-console/LocalAI-GUI.ps1",
+            "windows/local-model-console/build.ps1",
+            "windows/local-model-console/app.manifest",
+            "windows/local-model-console/scripts/start-services.ps1",
+            "windows/local-model-console/examples/model-settings.example.json",
+            "windows/local-model-console/examples/panel-routes.example.json",
+            "tools/windows_console.py",
+            "mac/console/config.windows.example.json",
+        }
+        expected.update("windows/local-model-console/flags/" + code + ".png"
+                        for code in ("CN", "DE", "GB", "HK", "JP", "SG", "US"))
+        allowlist = set(json.loads((repository / "source-files.json").read_text(encoding="utf-8")))
+        self.assertTrue(expected <= allowlist, "Release manifest omits Windows build or launcher inputs")
+        before = {name: (repository / name).read_bytes() for name in expected}
+        with tempfile.TemporaryDirectory() as folder:
+            state = Path(folder) / "updates"
+            updates.register_baseline(state, repository)
+            receipt = updates._verified_receipt(state, "baseline")
+            self.assertTrue(expected <= set(receipt["files"]))
+            for name, content in before.items():
+                self.assertEqual((state / "baseline" / name).read_bytes(), content, name)
+                self.assertEqual((repository / name).read_bytes(), content, name)
+
+    def test_legacy_baseline_excludes_windows_runtime_and_fixture_copies(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            source = root / "source"
+            source.mkdir()
+            updates.extract_source(io.BytesIO(source_zip("0.1.0")), source, "0.1.0")
+            private = {
+                "windows/local-model-console/state/panel-runtime/LocalAI-Backend.ps1",
+                "windows/local-model-console/fixtures/fixture-start-services.ps1",
+                "windows/local-model-console/ui-regression/fixture.cs",
+                "windows/local-model-console/switch-recovery-fixtures-123/helper.ps1",
+                "windows/local-model-console/config/panel-routes.json",
+                "windows/local-model-console/logs/event.txt",
+            }
+            for name in private:
+                path = source / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"PRIVATE FIXTURE: must not enter an update baseline")
+            for name in ("LocalAI-Control.cs", "LocalAI.UI.xaml", "app.manifest", "flags/CN.png"):
+                original = MODULE.parents[3] / "windows/local-model-console" / name
+                target = source / "windows/local-model-console" / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(original.read_bytes())
+            state = root / "updates"
+            updates.register_baseline(state, source)
+            receipt = updates._verified_receipt(state, "baseline")
+            self.assertTrue(private.isdisjoint(receipt["files"]))
+            for name in private:
+                self.assertFalse((state / "baseline" / name).exists(), name)
+                self.assertEqual((source / name).read_bytes(), b"PRIVATE FIXTURE: must not enter an update baseline")
+            for name in ("LocalAI-Control.cs", "LocalAI.UI.xaml", "app.manifest", "flags/CN.png"):
+                relative = "windows/local-model-console/" + name
+                self.assertEqual((state / "baseline" / relative).read_bytes(), (source / relative).read_bytes())
+
     def test_unpublished_is_not_a_failure(self):
         def missing(url, maximum):
             raise urllib.error.HTTPError(url, 404, "not found", {}, None)

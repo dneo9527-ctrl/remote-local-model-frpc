@@ -321,6 +321,26 @@ def _verified_receipt(state, version):
 
 def _baseline_files(source):
     """Finite code locations; never snapshot an installed runtime wholesale."""
+    allowlist = source / "source-files.json"
+    if allowlist.is_file():
+        try:
+            names = json.loads(allowlist.read_text(encoding="utf-8"))
+            if not isinstance(names, list) or not all(isinstance(name, str) for name in names):
+                raise ValueError()
+            if len(names) != len(set(names)):
+                raise ValueError()
+        except (OSError, ValueError):
+            raise UpdateError("基线源码白名单无效，未保存不完整回退点。") from None
+        files = []
+        for name in names:
+            relative = _safe_relative(name)
+            path = source.joinpath(*relative.parts)
+            if (not path.is_file() or path.is_symlink() or source not in path.resolve().parents or
+                    any(parent.is_symlink() for parent in path.parents if parent != source.parent)):
+                raise UpdateError("基线白名单缺少文件或包含符号链接。")
+            files.append((path, name))
+        return files
+    # Compatibility for earlier source snapshots without a manifest.
     top = {"version.json", "README.md", "LICENSE", ".gitignore", ".gitattributes"}
     suffixes = {".py", ".js", ".css", ".html", ".ps1", ".cmd", ".bat", ".command", ".md", ".txt", ".yaml"}
     paths = []
@@ -333,13 +353,18 @@ def _baseline_files(source):
             _safe_relative(name)
         except UpdateError:
             continue
-        if any(part in {"bin", "dist", "cache", ".venv", "venv", "runtime", "config", "run"}
+        if any(part in {"bin", "dist", "cache", ".venv", "venv", "runtime", "config", "run",
+                        "state", "fixtures", "ui-regression"} or part.startswith("switch-recovery-fixtures-")
+               or part.startswith("stcp-safety-fixtures-")
                for part in relative.parts[:-1]):
             continue
         included = (name in top or
                     name in {"mac/console/config.example.json", "mac/console/config.windows.example.json"} or
                     (name.startswith("mac/console/app/") and path.suffix in {".py", ".js", ".css", ".html"}) or
                     (name.startswith("tools/") and path.suffix in {".py", ".ps1", ".cmd", ".command"}) or
+                    (name.startswith("windows/local-model-console/") and
+                     (path.suffix in {".cs", ".xaml", ".manifest", ".png"} or
+                      path.name in {"LICENSE", "model-settings.example.json", "panel-routes.example.json"})) or
                     (name.startswith("windows/") and (path.suffix in suffixes or
                      path.name in {".env.example", "frpc.example.toml"})))
         if included and path.is_file():

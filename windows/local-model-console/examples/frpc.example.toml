@@ -1,0 +1,18 @@
+# Template only. Copy privately to config/frpc.toml and replace placeholders.
+serverAddr = "192.0.2.10"
+serverPort = 7000
+auth.method = "token"
+auth.token = "REPLACE_WITH_YOUR_FRPS_TOKEN"
+
+[log]
+# Relative to the original helper's working directory bin/frp/.
+to = "../../logs/frpc.log"
+level = "info"
+maxDays = 3
+
+[[proxies]]
+name = "ollama"
+type = "stcp"
+secretKey = "REPLACE_WITH_YOUR_PRIVATE_STCP_KEY"
+localIP = "127.0.0.1"
+localPort = 11434

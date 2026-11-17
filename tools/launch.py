@@ -45,7 +45,11 @@ def main():
                 print(json.dumps({"source": str(source), "started": False}, ensure_ascii=False))
                 return 0
             if os.name == "nt":
-                raise UpdateError("Windows 原模型 App 尚待合入此启动器。请继续使用原 App；update.py 可独立检查和下载共享源码。")
+                if not (source / "tools/windows_console.py").is_file():
+                    raise UpdateError("所选版本尚无 Windows 原生启动器；update.py 可独立检查更新。")
+                sys.path.insert(0, str(source / "tools"))
+                from windows_console import launch_windows
+                return launch_windows(source, config, args.foreground)
             environment = os.environ.copy()
             environment["PYTHONDONTWRITEBYTECODE"] = "1"
             # Prevent an inherited Python module path from replacing this source.

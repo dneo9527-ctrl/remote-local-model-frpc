@@ -1,0 +1,101 @@
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ Title="本地模型控制台" Width="980" Height="860" MinWidth="860" MinHeight="700" WindowStartupLocation="CenterScreen"
+ Background="#F2F5FA" FontFamily="Microsoft YaHei UI" FontSize="13" UseLayoutRounding="True">
+ <Window.Resources>
+  <Style TargetType="Button">
+   <Setter Property="Height" Value="44"/><Setter Property="Padding" Value="18,0"/><Setter Property="Cursor" Value="Hand"/>
+   <Setter Property="Background" Value="White"/><Setter Property="Foreground" Value="#253654"/><Setter Property="BorderBrush" Value="#D7DFED"/>
+   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="Button">
+    <Border x:Name="Body" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="{TemplateBinding Padding}">
+     <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+    </Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Body" Property="Opacity" Value="0.8"/></Trigger>
+     <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Body" Property="Opacity" Value="0.45"/></Trigger>
+    </ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
+  </Style>
+  <Style x:Key="RouteStyle" TargetType="RadioButton">
+   <Setter Property="Cursor" Value="Hand"/><Setter Property="VerticalContentAlignment" Value="Center"/>
+   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RadioButton">
+    <Border x:Name="Card" Background="White" BorderBrush="#D7DFED" BorderThickness="1" CornerRadius="12" Padding="16,12">
+     <Grid><ContentPresenter/><TextBlock x:Name="Check" Text="●" Foreground="#2563EB" Visibility="Collapsed" HorizontalAlignment="Right" VerticalAlignment="Top"/></Grid>
+    </Border><ControlTemplate.Triggers>
+     <Trigger Property="IsChecked" Value="True"><Setter TargetName="Card" Property="Background" Value="#EDF4FF"/><Setter TargetName="Card" Property="BorderBrush" Value="#2563EB"/><Setter TargetName="Card" Property="BorderThickness" Value="2"/><Setter TargetName="Check" Property="Visibility" Value="Visible"/></Trigger>
+     <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Card" Property="Opacity" Value="0.5"/></Trigger>
+    </ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
+  </Style>
+ </Window.Resources>
+ <Grid>
+  <Grid.RowDefinitions><RowDefinition Height="124"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+  <Border Background="#12203A" Padding="28,20">
+   <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+    <StackPanel><TextBlock Text="LOCAL AI  /  WINDOWS" FontSize="11" FontWeight="Bold" Foreground="#78CBE4" Margin="0,0,0,7"/>
+     <TextBlock Text="本地模型控制台" FontSize="27" FontWeight="Bold" Foreground="White"/>
+     <TextBlock Text="Ollama 算力 · frp 远程连接 · 独立运行" Foreground="#B0C1DD" Margin="0,7,0,0"/>
+    </StackPanel>
+    <Border Grid.Column="1" Background="#243858" CornerRadius="16" Padding="15,8" VerticalAlignment="Center">
+     <TextBlock x:Name="HeaderState" Text="正在检查" Foreground="#DCE8FA"/>
+    </Border>
+   </Grid>
+  </Border>
+  <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+   <StackPanel Margin="26,20,26,16">
+    <Border x:Name="Banner" Background="#E5EDFA" CornerRadius="10" Padding="15,11" Margin="0,0,0,16">
+     <StackPanel><TextBlock x:Name="BannerText" Text="正在读取本机服务状态…" TextWrapping="Wrap" Foreground="#24466F" FontWeight="SemiBold"/>
+      <ProgressBar x:Name="Progress" Height="3" Margin="0,10,0,0" IsIndeterminate="True" Visibility="Collapsed" Foreground="#2563EB"/>
+     </StackPanel>
+    </Border>
+    <UniformGrid Columns="3" Margin="-5,0,-5,18">
+     <Border Background="White" CornerRadius="12" Padding="17,14" Margin="5,0">
+      <StackPanel><TextBlock Text="本地模型 · Ollama" Foreground="#6A7890"/><TextBlock x:Name="OllamaState" Text="检查中" FontSize="22" FontWeight="Bold" Margin="0,7,0,6"/>
+       <TextBlock x:Name="OllamaDetail" Text="127.0.0.1:11434" Foreground="#758198" TextWrapping="Wrap" MinHeight="35"/></StackPanel>
+     </Border>
+     <Border Background="White" CornerRadius="12" Padding="17,14" Margin="5,0">
+      <StackPanel><TextBlock Text="远程连接 · frp STCP" Foreground="#6A7890"/><TextBlock x:Name="TunnelState" Text="检查中" FontSize="22" FontWeight="Bold" Margin="0,7,0,6"/>
+       <TextBlock x:Name="TunnelDetail" Text="等待本轮隧道注册记录" Foreground="#758198" TextWrapping="Wrap" MinHeight="35"/></StackPanel>
+     </Border>
+     <Border Background="White" CornerRadius="12" Padding="17,14" Margin="5,0">
+      <StackPanel><TextBlock Text="辅助连接 · Tailscale" Foreground="#6A7890"/><TextBlock x:Name="TsState" Text="检查中" FontSize="22" FontWeight="Bold" Margin="0,7,0,6"/>
+       <TextBlock x:Name="TsDetail" Text="frp 可以独立工作" Foreground="#758198" TextWrapping="Wrap" MinHeight="35"/></StackPanel>
+     </Border>
+    </UniformGrid>
+    <Grid Margin="0,0,0,10"><TextBlock Text="选择 VPS 线路" FontSize="16" FontWeight="Bold" Foreground="#1D2E4B"/>
+     <TextBlock x:Name="CurrentRoute" Text="配置读取中" HorizontalAlignment="Right" Foreground="#6A7890" VerticalAlignment="Center"/></Grid>
+    <Grid Margin="0,0,0,10"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+     <TextBlock Text="可添加更多线路 · 本机 → VPS · 配置中的 frps 端口" Foreground="#718098" FontSize="12" VerticalAlignment="Center"/>
+     <Button x:Name="ProbeButton" Grid.Column="1" Content="测延迟" Height="34" Margin="8,0,0,0"/>
+     <Button x:Name="AddRouteButton" Grid.Column="2" Content="＋ 添加线路" Height="34" Margin="8,0,0,0"/>
+     <Button x:Name="EditRouteButton" Grid.Column="3" Content="编辑" Height="34" Margin="8,0,0,0"/>
+     <Button x:Name="DeleteRouteButton" Grid.Column="4" Content="删除" Height="34" Margin="8,0,0,0"/>
+    </Grid>
+    <ListBox x:Name="RouteList" Height="198" BorderThickness="0" Background="Transparent" ScrollViewer.HorizontalScrollBarVisibility="Disabled" Margin="0,0,0,8" AutomationProperties.Name="VPS线路列表">
+     <ListBox.ItemContainerStyle><Style TargetType="ListBoxItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0,0,0,6"/><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ListBoxItem"><Border x:Name="Row" CornerRadius="9" BorderBrush="#D7DFED" Background="White" BorderThickness="1" Padding="14,10"><ContentPresenter/></Border><ControlTemplate.Triggers><Trigger Property="IsSelected" Value="True"><Setter TargetName="Row" Property="Background" Value="#EAF2FF"/><Setter TargetName="Row" Property="BorderBrush" Value="#2563EB"/></Trigger><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Row" Property="BorderBrush" Value="#7AA7ED"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter></Style></ListBox.ItemContainerStyle>
+     <ListBox.ItemTemplate><DataTemplate><Grid><Grid.ColumnDefinitions><ColumnDefinition Width="170"/><ColumnDefinition Width="235"/><ColumnDefinition Width="180"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+      <StackPanel VerticalAlignment="Center" ToolTip="{Binding Name}"><TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold" Foreground="#1C3557" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Region}" Foreground="#8A97AA" FontSize="10" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/></StackPanel>
+      <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" ToolTip="{Binding LocationTip}"><Image Source="{Binding Flag}" Width="26" Height="18" Stretch="Uniform" Margin="0,0,8,0"/><StackPanel><TextBlock Text="{Binding CountryDisplay}" Foreground="#5A6C86" FontSize="12"/><TextBlock Text="{Binding LocationDisplay}" Foreground="#8190A5" FontSize="11" Width="196" TextTrimming="CharacterEllipsis" Margin="0,3,0,0"/></StackPanel></StackPanel>
+      <TextBlock Grid.Column="2" Text="{Binding Address}" FontFamily="Consolas" Foreground="#416286" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" ToolTip="{Binding Address}"/>
+      <StackPanel Grid.Column="3" ToolTip="TCP 检查 frps 的 7000 端口；Ping 未响应不等于离线。隧道以顶部注册状态为准。"><TextBlock Text="{Binding PingText}" Foreground="{Binding PingColor}" FontWeight="SemiBold"/><TextBlock Text="{Binding LatencyText}" Foreground="{Binding LatencyColor}" FontSize="10" Margin="0,2,0,0"/></StackPanel>
+     </Grid></DataTemplate></ListBox.ItemTemplate>
+    </ListBox>
+    <TextBlock Text="国旗和位置可在“编辑”中修正。切线仅修改 serverAddr；远程设备的 visitor 需连接同一 VPS。" Foreground="#718098" FontSize="12" Margin="0,0,0,16"/>
+    <WrapPanel Margin="0,0,0,17">
+     <Button x:Name="StartButton" Content="一键启动" Background="#2563EB" BorderBrush="#2563EB" Foreground="White" FontWeight="Bold" MinWidth="178" Margin="0,0,10,6"/>
+     <Button x:Name="StopButton" Content="停止隧道" Margin="0,0,10,6"/>
+     <Button x:Name="CherryButton" Content="打开 Cherry Studio" Margin="0,0,10,6"/>
+     <Button x:Name="RefreshButton" Content="刷新状态" Margin="0,0,0,6"/>
+    </WrapPanel>
+    <Expander Header="连接信息（首次配置客户端时使用）" IsExpanded="False" Foreground="#63748E" Margin="0,0,0,12">
+     <Border Background="White" CornerRadius="12" Padding="17,13" Margin="0,8,0,0"><StackPanel>
+      <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="Windows 本机 Ollama  http://127.0.0.1:11434" FontFamily="Consolas, Microsoft YaHei UI" Foreground="#4D6686"/><TextBlock Text="OpenAI 兼容地址后加 /v1" Foreground="#8190A5" FontSize="11" Margin="0,4,0,0"/></StackPanel><Button x:Name="CopyWindowsButton" Grid.Column="1" Content="复制本机 OpenAI 地址" Height="34"/></Grid>
+      <StackPanel Margin="0,12,0,10"><TextBlock Text="远程设备接入（Mac / 手机 / 其他设备）" FontWeight="SemiBold" Foreground="#4D6686"/><TextBlock Text="先在该设备运行 frpc visitor，连接与 Windows 相同的 VPS。" Foreground="#72819A" FontSize="12" TextWrapping="Wrap" Margin="0,5,0,3"/><TextBlock Text="客户端填写该设备 visitor 提供的本地入口；IP 和端口以该设备实际配置为准。" Foreground="#72819A" FontSize="12" TextWrapping="Wrap"/></StackPanel>
+      <TextBlock x:Name="ModelText" Text="项目默认模型读取中" Foreground="#72819A" FontSize="12" TextWrapping="Wrap"/>
+     </StackPanel></Border>
+    </Expander>
+    <DockPanel Margin="0,0,0,9"><TextBlock x:Name="CheckedAt" Text="状态会自动刷新" Foreground="#8090A7" FontSize="11" DockPanel.Dock="Left"/>
+     <TextBlock Text="停止只关闭隧道；关窗口后服务继续运行。" HorizontalAlignment="Right" Foreground="#8090A7" FontSize="11"/></DockPanel>
+    <Expander Header="操作记录与日志" Foreground="#63748E">
+     <StackPanel Margin="0,9,0,0"><TextBox x:Name="History" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Height="85" Background="White" BorderBrush="#D7DFED" Padding="10" FontSize="12"/>
+      <WrapPanel Margin="0,8,0,0"><Button x:Name="LogButton" Content="打开日志目录" Height="32" Margin="0,0,8,0"/><Button x:Name="UpdateButton" Content="检查更新" Height="32"/></WrapPanel></StackPanel>
+    </Expander>
+   </StackPanel>
+  </ScrollViewer>
+ </Grid>
+</Window>

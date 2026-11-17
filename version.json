@@ -6,6 +6,7 @@
   "channel": "preview",
   "components": {
     "mac-console": "0.2.0-preview.1",
-    "windows-sub2api": "0.2.0-preview.1"
+    "windows-sub2api": "0.2.0-preview.1",
+    "windows-model-console": "1.0.2-preview.1"
   }
 }
