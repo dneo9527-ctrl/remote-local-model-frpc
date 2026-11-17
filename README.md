@@ -13,6 +13,8 @@ Mac 首页只保留连接开关、VPS 线路、Cherry Studio 和网页聊天；�
 
 ![Mac 核心界面](docs/screenshots/mac-core.jpg)
 
+![Windows 原生 WPF 的 CI 离线预览，非用户电脑实拍](docs/screenshots/windows-ci-offline-preview.png)
+
 [操作步骤](docs/操作步骤.md) · [双端维护与更新](docs/维护与更新.md) · [验收状态](docs/验收.md) · [GitHub 发布](https://github.com/dneo9527-ctrl/remote-local-model-frpc/releases)
 
 ## 运行与连接
@@ -33,4 +35,4 @@ Mac 固定入口为 `http://127.0.0.1:11435`，OpenAI 兼容入口为 `http://12
 
 统一版本见 [version.json](version.json)。`windows` 保留来源端提交，`codex/mac-receiver` 是本次整合候选，审核后通过 PR 进入 `main`。稳定 tag 为 `vX.Y.Z`，预览为 `vX.Y.Z-preview.N`。源码分支变化不等于已发布新版；以 Releases 的准确 tag、附件与校验结果为准。
 
-当前是源码预览：无打包 Python/frpc、无 Apple 公证。Windows 原生构建/隔离检查与真实 Windows 机器部署分别验收；双端多 VPS 实机切换、Codex GUI 新聊天等只在对应验收通过后才标完成。第三方许可保留原文件；Mac 控制台与新增更新代码沿用控制台 MIT，Windows 上游 Compose/Sub2API 许可见其 THIRD-PARTY。
+当前是源码预览：无打包 Python/frpc、无 Apple 公证。Windows 原生构建/隔离检查与真实 Windows 机器部署分别验收；双端多 VPS 实机切换、Codex GUI 新聊天等只在对应验收通过后才标完成。Mac 控制台与新增更新代码各有 MIT 许可；Windows Sub2API 的第三方许可见其 THIRD-PARTY。Windows 模型 GUI 与国旗资源尚缺明确许可声明，发布前需核实，不将全库统称 MIT。
