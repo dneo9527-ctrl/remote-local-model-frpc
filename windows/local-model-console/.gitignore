@@ -1,4 +1,6 @@
 /LocalAI-Control.exe
+*.exe
+*.pdb
 /app.ico
 /fixtures/
 /ui-regression/
