@@ -2,7 +2,38 @@
 
 本记录只交接 Sub2API 的 Windows provider。Windows 在本仓库 `windows` 分支维护，Mac 在自己的 `codex/mac-receiver` 分支继续。读取或合并前先检查工作区，不自动修改另一端分支，不把 Git 源码目录当作当前运行目录。
 
-## 2026-11-18 检查结果：Windows 已恢复，provider 已注册
+## 当前方式：Docker 联动与桌面一键启动（2026-11-18）
+
+已将 Windows provider 从独立 `frpc.exe` 迁入同一个 `sub2api-local` Compose 项目，服务和容器名均为 `sub2api-frpc`。桌面 **启动 Sub2API** 快捷方式指向原部署的 `Start-Sub2API.cmd`，会启动 Docker（需要时）与整个项目，并核对健康和注册。
+
+用户日常步骤：Windows 双击桌面快捷方式；Mac 用已有“本地 AI 控制台.app”启动已配置的连接，再通过 CC Switch 的现有供应商使用 Codex。停止 Windows 服务时，在 Docker Desktop 操作 `sub2api-local` 项目整行的停止按钮即可。
+
+### 保留的连接约定
+
+- provider 名仍为 `sub2api_ke`，frps 地址、控制端口、token、STCP secretKey、TLS 和载荷加密保留。
+- Windows 本地仍为 `127.0.0.1:8080`，Mac 的 Sub2API visitor 仍为 `127.0.0.1:18081`，CC Switch 的 API 地址仍带 `/v1`，下游 Key 未换。
+- 容器内配置的 `localIP` 改为 Docker 服务名 `sub2api`；这是 Windows 容器之间的转发目标，不是 Mac 隧道端口调整。frpc 没有新增宿主机监听端口。
+- 原 Ollama/provider 进程和配置保留。Mac 控制台须包含相应两条映射，单纯 frps 控制连接上线不能自动创建未配置的 visitor。
+- 原生 Windows Sub2API frpc PID `21596` 已精确核对路径、配置及进程身份后停止。当前 provider 状态应查 Docker `sub2api-frpc`，不要把下文旧进程快照当成当前状态。
+
+### 已实际验证
+
+1. `Stop-Sub2API.ps1` 整组停止后，四个容器均为 `exited`、容器 PID 均为 0。
+2. 通过实际桌面 `.lnk` 启动，四个容器重新运行，原三个服务健康；frpc 登录并注册成功。没有只测试一个与快捷方式无关的命令。
+3. 原三个容器 ID 和数据卷保留；`.env`、本地 Codex 和 CC Switch 设置文件哈希保留。
+4. 2026-11-18 19:31:13 +08:00，从 Windows 临时 visitor 实际经过公网 frps → Docker frpc → Docker Sub2API 验证健康正常；无 Key `/v1/models` 返回 401，原 Key 返回 200 JSON，列出 23 个模型。测试 visitor 已停止。
+5. 真实 Mac 控制台、CC Switch、Codex App 本轮未在 Windows 代验，Mac 侧可沿用原端口与 Key 继续使用、记录结果。
+
+重新启动后的容器日志采用 UTC（北京时间加 8 小时），脱敏示例：
+
+```text
+2026-11-18 11:29:26.614 [I] [session] login to server success
+2026-11-18 11:29:26.805 [I] [session] [sub2api_ke] start proxy success
+```
+
+备份在原部署 `backups/docker-frpc-20261118-192530/`，包含原 Compose、启停脚本、私有配置与 `.env`；不上传 Git。原生 frpc 程序保留作回退材料，新的启动器不会再启动它。Docker 自身之前的套接字和端口故障恢复属历史动作，下面保留记录；本轮迁移没有再次修改系统网络或新增开机服务。
+
+## 历史记录：迁移前的原生 Windows provider 恢复
 
 Mac 报错 `custom listener for [sub2api_ke] doesn't exist` 后，Windows 端实查结果：
 
@@ -97,9 +128,9 @@ git show origin/windows:windows/sub2api-local/MAC_HANDOFF.md
 
 需要合并时，在 Mac 自己的分支保存本地工作后合并 `origin/windows`，保留 Mac 端已有改动；Windows 端不会修改 Mac 分支或 `main`。
 
-### 日常启停
+### 日常启停（已更新为 Docker）
 
 - 从原部署目录双击 `Start-Sub2API.cmd` 启动，双击 `Status-Sub2API.cmd` 检查。
-- `Stop-Sub2API.cmd` 会停止本项目 provider 及三个容器，数据卷保留，本地 CC Switch 也会暂时无法调用该网关。
+- `Stop-Sub2API.cmd` 会停止本项目四个容器，数据卷保留，本地 CC Switch 也会暂时无法调用该网关。
 - 仅断开远程隧道而继续本地使用时，在原目录 PowerShell 执行 `. ./Tunnel.ps1; Stop-Sub2ApiTunnel`。
-- 本项目未新增启动任务或后台看守，Windows/Docker/frpc 状态仍需在重启后确认。
+- 本项目未新增 Windows 启动任务或后台看守。provider 使用 Docker `unless-stopped` 策略，与其余服务一致；显式停止整个项目后，双击桌面快捷方式恢复。
