@@ -1,6 +1,8 @@
 # Mac 模型接收端
 
-核心界面：Windows 模型连接、VPS 线路、连接开关、Cherry Studio、流式网页聊天。更新与日志收在管理入口。原 Codex/Sub2API 接入代码和私人配置保留为独立扩展，不出现在模型首页。
+核心界面：Windows 模型连接、VPS 线路、连接开关、Cherry Studio、流式网页聊天。已配置 Sub2API 时另有独立连接开关、连接选择、手动健康检查和 CC Switch 入口。更新与日志收在管理入口。
+
+Sub2API 状态刷新只被动读取本地监听，不请求远端。只有点击“检查 API”才检查健康，不调用模型；健康通过也不代表认证、Responses 或 Codex 对话已验收。18081 被外部 visitor 占用时不接管、不停止。控制台仅管理连接，旧 Codex 配置写入动作已禁用，供应商与认证交给 CC Switch。示例设置 `automatic_health_checks=false`，连原 Ollama 健康探测也暂缓；已有配置省略该项时保留原 Ollama 检查行为。
 
 从统一项目根目录运行 `python3 tools/launch.py --config /absolute/private/settings.json --state /absolute/private/updates`。Python 3.11+，仅标准库；复用已有网关和 frpc，不下载模型。
 

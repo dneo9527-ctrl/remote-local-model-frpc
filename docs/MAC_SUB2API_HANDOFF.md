@@ -1,5 +1,35 @@
 # Mac Sub2API 连接与 CC Switch 交接
 
+## 本地段完成，远端验收暂缓（2026-11-19）
+
+按用户“暂不测试，先完成本地段”的要求，本机已从原 **2本地 AI 控制台.app** 入口运行 `0.2.0-preview.2` 本地候选源码；这是 Mac 分支的本机安装，未创建 GitHub Release、未合并 main、未修改 Windows。
+
+已完成：
+
+- 首页独立显示 **Windows Sub2API** 连接开关、已保存连接选择、手动“检查 API”和“打开 CC Switch”。原 Ollama/Cherry/网页聊天入口保留。
+- 状态刷新被动读取 Mac 本地监听，不接入 STCP 转发端口。Sub2API 健康请求仅由“检查 API”触发，显示的是上次手动结果；没有自动模型请求。当前设置 `automatic_health_checks=false`，原 Ollama 的自动健康检查也暂缓。
+- 外部 visitor 占用 18081 时明确显示并禁用接管/换线路；仅停止本控制台所属 visitor。旧的控制台 Codex prepare/apply/restore 动作已拒绝，供应商和认证统一由 CC Switch 管理。
+- 切换 Sub2API 连接前备份私人设置并检查已发生的并发编辑；不改 Ollama 配置。visitor 校验拒绝附加 includes、公网监听及公网管理端口。
+- **Windows Sub2API** 供应商仍已保存，下游 Key 本机核对一致；本轮没有切换当前供应商。安装前后实际 Codex 配置和 CC Switch 设置文件摘要一致，原 Ollama 网关 PID 保留。
+
+本轮只做本地验证：Mac 控制台 37 项隔离测试、更新器/启动器 24 项测试通过；隔离页面实点验证连接开关、手动检查结果与外部连接保护；实际安装页面确认新入口、`0.2.0-preview.2`、Sub2API 关闭、远端“未检查”。**未执行 Windows health、认证、Responses 或 Codex App 真实请求。**
+
+### 当前使用与恢复
+
+1. 现在可打开原 App 查看本地界面，进入 CC Switch 查看已保存供应商。Sub2API 按本轮要求保持关闭。
+2. 日后恢复联调时，先启动 Windows 服务，再打开 Mac 控制台，选择 **Windows Sub2API · STCP** 并开启连接。按需手动检查 API。
+3. 接口验收通过后，在 CC Switch 的 Codex 分类选择 **Windows Sub2API**，由用户正常重启 Codex 并发送新聊天消息。当前保存模型 `gpt-6.1-sol` 尚需当时网关实测确认。
+4. 断开时关闭 Sub2API 开关；退出控制台也会清理它所属的 visitor。关闭网页不会停止连接。Mac 重启或重开控制台后需显式开启 Sub2API，未增加自启或后台服务。
+5. 切回时在 CC Switch 选择原供应商，并按需重启 Codex。控制台不负责改写 Codex 配置。
+
+### 本机安装与回退
+
+原已校验发布版 `updates/releases/0.2.0-preview.1` 和原始基线均保留。本地候选安装在工具的 `source`，原 App 启动脚本未改；原 `updates/active.json` 已归档，因而正规启动器使用本地候选源码。私人设置留在原支持位置，备份不进 Git。
+
+本机维护者回退时先退出控制台，将本次私人备份中的 `active-selected.json` 恢复为 `updates/active.json`，再从原 App 重开；启动器会重新校验并选用已保留的发布版。需要一并恢复本次本地设置时，先保存后续个人修改，再使用同一备份中的 `settings-before.json`。不要删除旧源码、账号池或私人连接资料。准确备份目录记录在本机工具台账。
+
+下文为前一轮现场快照，不能当作本轮重新验证结果。
+
 检查时间：2026-11-18 22:29–22:34 +08:00。Mac 分支为 `codex/mac-receiver`。已 fetch 并阅读 Windows 提交 `6e9735f4a2bf992c90efa817e4509b3d4f3c6842` 的 `windows/sub2api-local/MAC_HANDOFF.md`，未合并或修改 Windows 分支。
 
 ## 实际结果

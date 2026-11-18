@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import secrets
+import copy
 import signal
 import socketserver
 import subprocess
@@ -22,7 +23,7 @@ import urllib.request
 from . import VERSION
 from .configuration import CodexConfig
 from .model_routes import switch_route
-from .core import FileLock, Tunnel, UserError, opener, port_open, probe, write_json
+from .core import FileLock, Tunnel, UserError, atomic_write, opener, port_open, port_listening, probe, write_json
 from .releases import REPOSITORY, UpdateError, discover
 
 WEB = Path(__file__).with_name("web")
@@ -45,6 +46,7 @@ class Controller:
         self.runtime.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.lock = threading.RLock()
         self.tunnel = Tunnel(self.config.get("sub2api", {}), self.runtime)
+        self.sub2api_check = {"state": "unchecked", "detail": "尚未检查远端 API"}
         self.codex = CodexConfig(self.config.get("codex_config", str(Path.home() / ".codex/config.toml")),
                                  self.runtime, self.config.get("sub2api", {}))
         self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=3)
@@ -60,11 +62,11 @@ class Controller:
     def status(self):
         o, s = self.config.get("ollama", {}), self.config.get("sub2api", {})
         legacy = self.config.get("include_legacy_integrations", False)
-        jobs = {"ollama": self.pool.submit(probe, o.get("url", "http://127.0.0.1:11435") + "/api/version")}
-        if legacy:
-            jobs["sub2api"] = self.pool.submit(probe, s.get("health_url", "http://127.0.0.1:18081/health"))
+        jobs = {}
+        if self.config.get("automatic_health_checks", True):
+            jobs["ollama"] = self.pool.submit(probe, o.get("url", "http://127.0.0.1:11435") + "/api/version")
         checks = {k: f.result() for k, f in jobs.items()}
-        checks.setdefault("sub2api", {"ok": False, "detail": "独立功能未启用"})
+        checks.setdefault("ollama", {"ok": False, "checked": False, "detail": "尚未检查远端 API"})
         active_provider = None
         try:
             if legacy:
@@ -78,21 +80,33 @@ class Controller:
                 "selected_model_route": self.config.get("selected_model_route"),
                 "ollama": {"running": self.ollama_running(), "managed": bool(o.get("manager")),
                            "url": o.get("url"), **checks["ollama"]},
-                "sub2api": {"running": self.tunnel.running, "mode": s.get("mode", "unconfigured"),
-                            "url": s.get("base_url"), "model": s.get("model"),
-                            "key_available": bool(s.get("key_file") and Path(s["key_file"]).is_file()),
-                            **checks["sub2api"]},
                 "routes": [{"id": k, "name": v.get("display_name", k)}
                            for k, v in self.config.get("sub2api_profiles", {}).items()],
                 "selected_route": self.config.get("selected_route"),
                 "codex_provider": active_provider,
                 "codex_plan": (self.runtime / "data/codex-plan.json").is_file(),
                 "github_configured": bool(self.config.get("github_repository")),
+                "apps": {"ccswitch": bool(self.config.get("apps", {}).get("ccswitch") and
+                                           Path(self.config["apps"]["ccswitch"]).exists())},
                 "notice": "Windows 负责推理；Mac 只管理连接。接口在线不等于模型已验收。"}
 
         if not legacy:
-            for key in ("sub2api", "routes", "selected_route", "codex_provider", "codex_plan"):
+            for key in ("codex_provider", "codex_plan"):
                 result.pop(key, None)
+        if s:
+            # A listener is a local fact, not proof of remote provider availability.
+            # Health is checked only by the explicit Sub2API/check action.
+            listener = s.get("mode") == "stcp" and port_listening(s.get("port", 18081))
+            running = self.tunnel.running
+            result["sub2api"] = {
+                "configured": s.get("mode") in ("stcp", "direct"),
+                "running": running, "listener": bool(listener),
+                "ownership": "owned" if running else "external" if listener else "stopped",
+                "mode": s.get("mode", "unconfigured"), "url": s.get("base_url"),
+                "model": s.get("model"),
+                "key_available": bool(s.get("key_file") and Path(s["key_file"]).is_file()),
+                "remote": self.sub2api_check.copy(),
+            }
         return result
 
     def action(self, service, action):
@@ -105,15 +119,44 @@ class Controller:
                     raise UserError("未找到该连接配置。")
                 if action == self.config.get("selected_route"):
                     return "已使用该连接配置。"
+                # Do not overwrite a concurrent edit in another console/editor.
+                original = self.config_path.read_bytes()
+                if json.loads(original) != self.config:
+                    raise UserError("连接设置已在其他窗口修改，请重新打开控制台后再切换。")
+                current = self.config.get("sub2api", {})
+                if (current.get("mode") == "stcp" and not self.tunnel.running and
+                        port_listening(current.get("port", 18081))):
+                    raise UserError("端口由外部连接占用，请先在原入口停止连接；未接管或切换。")
+                candidate = copy.deepcopy(self.config)
+                candidate["selected_route"] = action
+                candidate["sub2api"] = profiles[action].copy()
+                backup = self.runtime / "backups" / ("sub2api-route-" + str(time.time_ns()) + ".json")
+                atomic_write(backup, original)
                 self.tunnel.stop()
-                self.config["selected_route"] = action
-                self.config["sub2api"] = profiles[action].copy()
-                write_json(self.config_path, self.config)
+                if self.config_path.read_bytes() != original:
+                    raise UserError("连接设置已更新，保留其他窗口修改；原隧道已停止，请重新打开控制台。")
+                write_json(self.config_path, candidate)
+                self.config = candidate
                 self.tunnel = Tunnel(self.config["sub2api"], self.runtime)
                 self.codex.settings = self.config["sub2api"]
-                return "已切换控制台连接配置。Codex 需重新准备并应用配置后生效；未自动重发请求。"
-            if service == "sub2api" and action in ("start", "stop"):
-                return self.tunnel.start() if action == "start" else self.tunnel.stop()
+                self.sub2api_check = {"state": "unchecked", "detail": "尚未检查远端 API"}
+                return "已选择 Sub2API 连接，请按需开启；再在 CC Switch 选择对应供应商。"
+            if service == "sub2api":
+                if action in ("start", "stop"):
+                    message = self.tunnel.start() if action == "start" else self.tunnel.stop()
+                    self.sub2api_check = {"state": "unchecked", "detail": "尚未检查远端 API"}
+                    return message
+                if action == "check":
+                    settings = self.config.get("sub2api", {})
+                    if not settings.get("health_url"):
+                        raise UserError("尚未配置 Sub2API 健康检查地址。")
+                    checked = probe(settings["health_url"])
+                    self.sub2api_check = {
+                        "state": "ok" if checked["ok"] else "error", "detail": checked["detail"],
+                        "latency_ms": checked["latency_ms"],
+                    }
+                    return ("Sub2API 健康检查通过；认证、Responses 和 Codex 对话仍需分别验收。"
+                            if checked["ok"] else "Sub2API API 尚不可达，请确认 Windows 服务与 provider；本地监听不代表远端在线。")
             if service == "ollama" and action in ("start", "stop"):
                 cfg = self.config.get("ollama", {})
                 if not cfg.get("manager"):
@@ -130,16 +173,8 @@ class Controller:
                 subprocess.run(["/usr/bin/open", directory], check=True, timeout=5)
                 return "已打开本机日志目录。"
             if service == "codex":
-                if action == "prepare":
-                    return self.codex.prepare()
-                if action == "apply":
-                    s = self.config.get("sub2api", {})
-                    if not probe(s["health_url"])["ok"]:
-                        raise UserError("Sub2API 实际 API 尚不可达，保持现有 Codex 提供商。")
-                    return self.codex.apply(self.config.get("apps", {}).get("codex"))
-                if action == "restore":
-                    return self.codex.restore(self.config.get("apps", {}).get("codex"))
-            if service == "app" and action in ("cherry", "codex", "tailscale"):
+                raise UserError("请通过 CC Switch 管理 Codex 供应商和认证。")
+            if service == "app" and action in ("cherry", "codex", "tailscale", "ccswitch"):
                 target = self.config.get("apps", {}).get(action)
                 if not target or not Path(target).exists():
                     raise UserError("未找到该应用，请先在本机配置应用路径。")
@@ -149,7 +184,8 @@ class Controller:
                     subprocess.Popen([target], close_fds=True)
                 else:
                     raise UserError("当前平台尚未配置应用启动器。")
-                return "已打开应用；新提供商的 GUI 聊天仍需实际验证。"
+                return ("已打开 CC Switch，请在 Codex 分类选择 Windows Sub2API；切换后重启 Codex。"
+                        if action == "ccswitch" else "已打开应用；新提供商的 GUI 聊天仍需实际验证。")
             if service == "update" and action == "check":
                 if self.config.get("github_repository", REPOSITORY) != REPOSITORY:
                     raise UserError("请将更新源设为本项目官方仓库，未访问其他仓库。")

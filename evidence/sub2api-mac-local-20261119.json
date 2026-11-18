@@ -1,0 +1,30 @@
+{
+  "scope": "Mac local stage; remote acceptance deferred by user",
+  "version": "0.2.0-preview.2",
+  "distribution": "locally installed candidate; no GitHub release created",
+  "sub2api_ui": ["independent connection toggle", "saved connection selection", "manual API health check", "open CC Switch"],
+  "status_refresh": "passive local listener inspection; no Sub2API network probe",
+  "automatic_health_checks": false,
+  "visitor_after_installation": "stopped; no automatic startup",
+  "tests": {
+    "mac_console_isolated": {"count": 37, "passed": true},
+    "updater_and_launcher": {"count": 24, "passed": true},
+    "javascript_syntax": "passed",
+    "fixture_ui": ["toggle displayed local running state", "manual fixture check displayed previous result", "external listener disabled takeover and route switching"],
+    "installed_ui": "observed version, independent controls, stopped state and remote unchecked"
+  },
+  "preservation": {
+    "existing_app_entry": true,
+    "published_0_2_0_preview_1_source": true,
+    "original_ollama_gateway_pid": true,
+    "codex_config_bytes": true,
+    "cc_switch_settings_bytes": true,
+    "cc_switch_existing_active_supplier": true,
+    "windows_sub2api_saved_key_matches_local_file": true
+  },
+  "remote_health": "not tested this round",
+  "key_authentication": "not tested this round",
+  "responses_stream": "not tested this round",
+  "codex_app_conversation": "not verified",
+  "windows_changed": false
+}

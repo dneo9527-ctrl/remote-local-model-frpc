@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import errno
 import json
 import os
 from pathlib import Path
@@ -100,6 +101,32 @@ def port_open(port):
         return sock.connect_ex(("127.0.0.1", port)) == 0
 
 
+def port_listening(port):
+    """Inspect local port use without connecting to an STCP forwarding socket."""
+    if sys.platform == "darwin":
+        try:
+            result = subprocess.run(
+                ["/usr/sbin/lsof", "-nP", f"-iTCP:{int(port)}", "-sTCP:LISTEN", "-t"],
+                capture_output=True, timeout=3)
+        except (OSError, subprocess.TimeoutExpired):
+            raise UserError("无法读取本地监听状态；未尝试连接或接管端口。") from None
+        if result.returncode == 0:
+            return bool(result.stdout.strip())
+        if result.returncode == 1 and not result.stderr.strip():
+            return False
+        raise UserError("无法确认本地监听状态；未尝试连接或接管端口。")
+    # Other platforms: a bind attempt does not send traffic to the visitor.
+    # Busy/denied ports are conservatively unavailable, never taken over.
+    with socket.socket() as sock:
+        try:
+            sock.bind(("127.0.0.1", port))
+        except OSError as error:
+            if error.errno in (errno.EADDRINUSE, errno.EACCES):
+                return True
+            raise UserError("无法确认本地端口状态；未尝试连接。") from None
+    return False
+
+
 def private_key(path):
     key = Path(path).read_text(encoding="utf-8-sig").strip()
     if not key or "\n" in key or "\r" in key:
@@ -113,7 +140,9 @@ def validate_visitor(config, port):
     visitors = d.get("visitors", [])
     if (len(visitors) != 1 or visitors[0].get("type") != "stcp" or
             visitors[0].get("bindAddr") != "127.0.0.1" or
-            visitors[0].get("bindPort") != port or d.get("proxies")):
+            visitors[0].get("bindPort") != port or d.get("proxies") or
+            d.get("includes") or
+            (d.get("webServer") and d["webServer"].get("addr") != "127.0.0.1")):
         raise UserError("访客配置必须只包含本服务的 STCP、127.0.0.1 与约定端口。")
     return d
 
@@ -139,7 +168,7 @@ class Tunnel:
         if not cfg or not binary or not Path(binary).is_file():
             raise UserError("请先导入本机 frpc 与受限的 STCP 配置。")
         validate_visitor(cfg, self.settings["port"])
-        if port_open(self.settings["port"]):
+        if port_listening(self.settings["port"]):
             raise UserError("本地端口已被其他实例占用；不会接管或停止它。")
         checked = subprocess.run([binary, "verify", "-c", cfg], cwd=str(Path(cfg).parent),
                                  capture_output=True, timeout=10)
@@ -157,6 +186,8 @@ class Tunnel:
         return "已启动 Sub2API 隧道；远端可用性以 API 检查为准。"
 
     def stop(self):
+        if not self.running:
+            return "控制台管理的 Sub2API 隧道未运行；外部连接保持原状态。"
         if self.running:
             self.process.terminate()
             try:

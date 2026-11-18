@@ -3,8 +3,10 @@
   "port": 18765,
   "github_repository": "dneo9527-ctrl/remote-local-model-frpc",
   "update_channel": "preview",
+  "automatic_health_checks": false,
   "apps": {
-    "cherry": ""
+    "cherry": "",
+    "ccswitch": "/Applications/CC Switch.app"
   },
   "ollama": {
     "url": "http://127.0.0.1:11435",
@@ -15,5 +17,16 @@
     "log_directory": ""
   },
   "selected_model_route": "",
-  "ollama_routes": {}
+  "ollama_routes": {},
+  "selected_route": "",
+  "sub2api": {
+    "mode": "stcp",
+    "port": 18081,
+    "base_url": "http://127.0.0.1:18081/v1",
+    "health_url": "http://127.0.0.1:18081/health",
+    "frpc": "",
+    "visitor_config": "",
+    "key_file": ""
+  },
+  "sub2api_profiles": {}
 }
