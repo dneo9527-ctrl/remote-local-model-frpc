@@ -179,8 +179,18 @@ $('change-sub2api-route').onclick = () => act('route', $('sub2api-route').value)
 $('quit').onclick = async () => {
   if (busy) return;
   setBusy(true);
+  say('正在停止全部连接…');
   try {
     const data = await post('/api/shutdown', {});
+    if (data.shutdown_complete && state) {
+      state.ollama.running = false;
+      state.ollama.checked = false;
+      if (state.sub2api) {
+        Object.assign(state.sub2api, {running: false, listener: false, ownership: 'stopped',
+          remote: {state: 'unchecked'}});
+      }
+      renderState();
+    }
     say(data.message);
   } catch (error) {
     setBusy(false);

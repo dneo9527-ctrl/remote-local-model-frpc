@@ -28,7 +28,7 @@ final class LocalClient: NSObject, URLSessionTaskDelegate {
         let config = URLSessionConfiguration.ephemeral
         config.connectionProxyDictionary = [:]
         config.timeoutIntervalForRequest = 2
-        config.timeoutIntervalForResource = 3
+        config.timeoutIntervalForResource = 75
         return URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }()
     init(_ settings: MenuSettings) { self.settings = settings }
@@ -41,6 +41,8 @@ final class LocalClient: NSObject, URLSessionTaskDelegate {
 
     func request(_ path: String, token: String? = nil) -> [String: Any]? {
         var request = URLRequest(url: URL(string: base + path)!)
+        let timeout: TimeInterval = token == nil ? 4 : 75
+        request.timeoutInterval = timeout
         if let token = token {
             request.httpMethod = "POST"
             request.httpBody = Data("{}".utf8)
@@ -56,7 +58,7 @@ final class LocalClient: NSObject, URLSessionTaskDelegate {
             result = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         }
         task.resume()
-        if ready.wait(timeout: .now() + 4) == .timedOut { task.cancel(); return nil }
+        if ready.wait(timeout: .now() + timeout) == .timedOut { task.cancel(); return nil }
         return result
     }
 
@@ -114,6 +116,14 @@ final class ConsoleMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var starting = false
     var running = false
 
+    func completedQuit(for instance: String?) -> Bool {
+        guard let instance = instance else { return false }
+        let path = URL(fileURLWithPath: settings.runtime).appendingPathComponent("data/shutdown.json")
+        guard let data = try? Data(contentsOf: path),
+              let record = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return false }
+        return record["instance"] as? String == instance && record["complete"] as? Bool == true
+    }
+
     init(_ settings: MenuSettings) {
         self.settings = settings
         self.client = LocalClient(settings)
@@ -145,10 +155,10 @@ final class ConsoleMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(.separator())
         openItem = NSMenuItem(title: "打开控制台…", action: #selector(openConsole), keyEquivalent: "o")
         startItem = NSMenuItem(title: "启动控制台", action: #selector(startConsole), keyEquivalent: "")
-        quitItem = NSMenuItem(title: "退出本地 AI 控制台", action: #selector(quitConsole), keyEquivalent: "q")
+        quitItem = NSMenuItem(title: "全部退出", action: #selector(quitConsole), keyEquivalent: "q")
         for item in [openItem!, startItem!] { item.target = self; menu.addItem(item) }
         menu.addItem(.separator())
-        let note = NSMenuItem(title: "退出会停止控制台及所属 Sub2API 连接", action: nil, keyEquivalent: "")
+        let note = NSMenuItem(title: "停止 Ollama、Sub2API 和本机后台", action: nil, keyEquivalent: "")
         note.isEnabled = false
         menu.addItem(note)
         quitItem.target = self
@@ -162,7 +172,7 @@ final class ConsoleMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let mainOpen = NSMenuItem(title: "打开控制台…", action: #selector(openConsole), keyEquivalent: "o")
         mainOpen.target = self
         appMenu.addItem(mainOpen)
-        mainQuitItem = NSMenuItem(title: "退出本地 AI 控制台", action: #selector(quitConsole), keyEquivalent: "q")
+        mainQuitItem = NSMenuItem(title: "全部退出", action: #selector(quitConsole), keyEquivalent: "q")
         mainQuitItem.target = self
         appMenu.addItem(mainQuitItem)
         appItem.submenu = appMenu
@@ -202,12 +212,18 @@ final class ConsoleMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
         queue.async {
             let state = self.client.inspect()
             let childAlive = self.child?.isRunning == true
+            let fullyStopped = self.completedQuit(for: self.attachedInstance)
             if case .running(let session) = state { self.attachedInstance = session.instance }
             DispatchQueue.main.async {
                 guard !self.quitting, !self.starting else { return }
                 switch state {
                 case .running: self.display("后台运行中", alive: true)
                 case .stopped:
+                    if fullyStopped && !childAlive {
+                        self.mayTerminate = true
+                        NSApp.terminate(nil)
+                        return
+                    }
                     self.display(childAlive ? "后台仍在启动，请稍候" : "后台已停止", alive: false)
                     self.startItem.isEnabled = !childAlive
                 case .unavailable: self.display("服务身份未确认，请查看日志", alive: false)
@@ -308,7 +324,7 @@ final class ConsoleMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 // Only signal the Process this menu directly spawned, never a PID file.
                 self.child?.terminate()
             }
-            let deadline = Date().addingTimeInterval(18)
+            let deadline = Date().addingTimeInterval(12)
             var stopped = false
             repeat {
                 let state = self.client.inspect()
@@ -319,7 +335,8 @@ final class ConsoleMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 case .stopped: originalStillThere = false
                 case .unavailable: originalStillThere = true // Unknown is not an exit receipt.
                 }
-                stopped = self.child?.isRunning != true && !originalStillThere
+                stopped = self.child?.isRunning != true && !originalStillThere &&
+                    (expected == nil || self.completedQuit(for: expected))
                 if stopped { break }
                 Thread.sleep(forTimeInterval: 0.2)
             } while Date() < deadline

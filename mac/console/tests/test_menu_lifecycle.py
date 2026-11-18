@@ -11,9 +11,14 @@ import subprocess
 import sys
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 import urllib.error
 import urllib.request
+
+from app.core import UserError
+from app.server import Controller, Handler
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -105,8 +110,43 @@ class MenuLifecycleTests(unittest.TestCase):
             self.base + '/api/shutdown', data=b'{}',
             headers={'Content-Type': 'application/json',
                      'X-Local-CSRF': session['csrf']})
-        with self.opener.open(request, timeout=1) as response:
+        with self.opener.open(request, timeout=5) as response:
             self.assertEqual(response.status, 200)
+            return json.load(response)
+
+    def configure_local_manager(self, fail=False):
+        """Install only a temporary recorder, never an actual service manager."""
+        calls = self.root / 'manager-calls.jsonl'
+        failure = self.root / 'manager-failure'
+        manager = self.root / 'fixture-manager.py'
+        manager.write_text(
+            'import json, pathlib, sys\n'
+            f'calls = pathlib.Path({str(calls)!r})\n'
+            f'failure = pathlib.Path({str(failure)!r})\n'
+            'with calls.open("a") as stream:\n'
+            '    stream.write(json.dumps(sys.argv[1:]) + "\\n")\n'
+            'raise SystemExit(1 if failure.exists() else 0)\n')
+        if fail:
+            failure.write_text('fixture-only failure')
+        ports = []
+        while len(ports) < 3:
+            with socket.socket() as sock:
+                sock.bind(('127.0.0.1', 0))
+                port = sock.getsockname()[1]
+            if port != self.port and port not in ports and port not in (18765, 18081, 11435, 11436):
+                ports.append(port)
+        visitor = self.root / 'fixture-visitor.toml'
+        visitor.write_text('[[visitors]]\ntype="stcp"\nbindAddr="127.0.0.1"\n'
+                           f'bindPort={ports[1]}\n')
+        config = json.loads(self.config.read_text())
+        config['ollama'] = {
+            'python': sys.executable, 'manager': str(manager),
+            'url': f'http://127.0.0.1:{ports[0]}',
+            'visitor_config': str(visitor),
+        }
+        config['sub2api'] = {'mode': 'stcp', 'port': ports[2]}
+        self.config.write_text(json.dumps(config))
+        return calls, failure, visitor
 
     def child_exited(self):
         # A reparented child can briefly be a zombie awaiting the OS reaper.
@@ -139,6 +179,90 @@ class MenuLifecycleTests(unittest.TestCase):
         self.assertEqual(self.owner.wait(timeout=6), 0)
         self.assertTrue(self.child_exited())
         self.assert_no_listener()
+
+    def test_full_shutdown_pauses_manager_and_preserves_configuration(self):
+        calls, _, visitor = self.configure_local_manager()
+        original = self.config.read_bytes()
+        visitor_original = visitor.read_bytes()
+        self.start_owned()
+        result = self.shutdown()
+        self.assertIs(result.get('shutdown_complete'), True)
+        self.assertEqual(self.owner.wait(timeout=6), 0)
+        self.assertTrue(self.child_exited())
+        self.assert_no_listener()
+        recorded = [json.loads(line) for line in calls.read_text().splitlines()]
+        self.assertTrue(recorded, 'Full shutdown did not pause the configured manager')
+        self.assertTrue(all(call == ['pause'] for call in recorded))
+        self.assertEqual(self.config.read_bytes(), original)
+        self.assertEqual(visitor.read_bytes(), visitor_original)
+
+    def test_failed_manager_keeps_backend_available_for_shutdown_retry(self):
+        calls, failure, visitor = self.configure_local_manager(fail=True)
+        original = self.config.read_bytes()
+        visitor_original = visitor.read_bytes()
+        session = self.start_owned()
+        with self.assertRaises(urllib.error.HTTPError) as error:
+            self.shutdown()
+        self.assertEqual(error.exception.code, 409)
+        error.exception.close()
+        self.assertIsNone(self.owner.poll(), 'A failed stop must retain the backend')
+        self.assertFalse(self.child_exited())
+        self.assertEqual(self.session()['instance'], session['instance'])
+        self.assertEqual(self.config.read_bytes(), original)
+        self.assertEqual(visitor.read_bytes(), visitor_original)
+        failure.unlink()
+        result = self.shutdown()
+        self.assertIs(result.get('shutdown_complete'), True)
+        self.assertEqual(self.owner.wait(timeout=6), 0)
+        self.assert_no_listener()
+        recorded = [json.loads(line) for line in calls.read_text().splitlines()]
+        self.assertGreaterEqual(len(recorded), 2)
+        self.assertTrue(all(call == ['pause'] for call in recorded))
+        self.assertEqual(self.config.read_bytes(), original)
+        self.assertEqual(visitor.read_bytes(), visitor_original)
+
+    def test_missing_visitor_retains_backend_until_configuration_is_restored(self):
+        calls, _, visitor = self.configure_local_manager()
+        original = self.config.read_bytes()
+        visitor_original = visitor.read_bytes()
+        visitor.unlink()
+        session = self.start_owned()
+        with self.assertRaises(urllib.error.HTTPError) as error:
+            self.shutdown()
+        self.assertEqual(error.exception.code, 409)
+        error.exception.close()
+        self.assertIsNone(self.owner.poll())
+        self.assertEqual(self.session()['instance'], session['instance'])
+        self.assertEqual(self.config.read_bytes(), original)
+        self.assertFalse(visitor.exists(), 'Shutdown must not silently create missing config')
+        self.assertIn(['pause'], [json.loads(line) for line in calls.read_text().splitlines()])
+        visitor.write_bytes(visitor_original)
+        self.assertIs(self.shutdown().get('shutdown_complete'), True)
+        self.assertEqual(self.owner.wait(timeout=6), 0)
+        self.assert_no_listener()
+        self.assertEqual(self.config.read_bytes(), original)
+        self.assertEqual(visitor.read_bytes(), visitor_original)
+
+    def test_completed_shutdown_rejects_new_start_route_and_chat(self):
+        controller = Controller(self.config)
+        try:
+            with patch.object(controller.tunnel, 'stop'):
+                controller.shutdown_connections()
+            self.assertTrue(controller.connections_stopped)
+            for service, action in [('ollama', 'start'), ('sub2api', 'start'),
+                                    ('route', 'fixture-route'), ('model-route', 'fixture-route')]:
+                with self.subTest(service=service), patch('app.server.subprocess.run') as command:
+                    with self.assertRaisesRegex(UserError, '正在全部退出'):
+                        controller.action(service, action)
+                    command.assert_not_called()
+            handler = SimpleNamespace(server=SimpleNamespace(controller=controller))
+            with patch('app.server.opener') as outbound:
+                with self.assertRaisesRegex(UserError, '停止接收新聊天'):
+                    Handler.chat(handler, {'model': 'fixture', 'messages': [
+                        {'role': 'user', 'content': 'must not reach a model'}]})
+                outbound.assert_not_called()
+        finally:
+            controller.pool.shutdown(wait=True)
 
     def test_owner_death_cleans_up_foreground_backend(self):
         self.start_owned()

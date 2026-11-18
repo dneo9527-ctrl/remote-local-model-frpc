@@ -6,7 +6,7 @@ Sub2API 状态刷新只被动读取本地监听，不请求远端。只有点击
 
 从统一项目根目录运行 `python3 tools/launch.py --config /absolute/private/settings.json --state /absolute/private/updates`。Python 3.11+，仅标准库；复用已有网关和 frpc，不下载模型。
 
-Mac 原生菜单栏入口源码在 `mac/menu/LocalAIConsole.swift`，构建器为 `tools/build_mac_app.py`，需要本机已有 Swift/AppKit。菜单用电脑小图标显示控制台后台状态，支持打开页面、后台停止后重新启动、正常退出；关闭网页不等于退出。菜单只检查本机 session 身份，不探测上游。退出先等待所属后台清理，独立 Ollama 连接不受影响；菜单进程意外退出时，其直接管理的后台检测父进程消失后也会退出。构建器仅输出新 `.app` 目录，不覆盖安装或添加登录项。准确本机回退材料由工具台账记录。
+Mac 原生菜单栏入口源码在 `mac/menu/LocalAIConsole.swift`，构建器为 `tools/build_mac_app.py`，需要本机已有 Swift/AppKit。菜单用电脑小图标显示控制台后台状态，支持打开页面、后台停止后重新启动和 **全部退出**；关闭网页不等于退出。全部退出会暂停本控制台配置的 Ollama 网关/visitor（含既有管理器的登录恢复），停止 Sub2API 连接，确认端口关闭后再退出后台与菜单。失败时保留界面供重试；下次打开后需按需开启连接。菜单只检查本机 session 身份，不探测上游；Windows 服务与私人配置保留。菜单进程意外退出时，其直接管理的后台检测父进程消失后尝试清理全部本机连接；异常清理未完成会记录失败。构建器仅输出新 `.app` 目录，不覆盖安装或添加登录项。准确本机回退材料由工具台账记录。
 
 复制 `config.example.json` 到源码外，填写原模型管理器、解释器和私有 visitor 的绝对路径。线路列表 `ollama_routes` 每项引用自己的本机 STCP 配置；网页只收到名称与 ID，不收到密钥。切换先备份、只暂停本项目管理器；失败尝试恢复原配置。暂停状态下换线路仍保持暂停。
 

@@ -47,6 +47,8 @@ class Controller:
         self.lock = threading.RLock()
         self.tunnel = Tunnel(self.config.get("sub2api", {}), self.runtime)
         self.sub2api_check = {"state": "unchecked", "detail": "尚未检查远端 API"}
+        self.closing = False
+        self.connections_stopped = False
         self.codex = CodexConfig(self.config.get("codex_config", str(Path.home() / ".codex/config.toml")),
                                  self.runtime, self.config.get("sub2api", {}))
         self.pool = concurrent.futures.ThreadPoolExecutor(max_workers=3)
@@ -111,6 +113,8 @@ class Controller:
 
     def action(self, service, action):
         with self.lock:
+            if self.closing and action not in ("stop",):
+                raise UserError("正在全部退出，请等待连接停止。")
             if service == "model-route":
                 return switch_route(self, action)
             if service == "route":
@@ -196,6 +200,62 @@ class Controller:
                 return f"已安装 {VERSION}；" + result["message"]
             raise UserError("不支持的操作。")
 
+    def shutdown_connections(self):
+        """Stop every local connection configured for this console, then verify.
+
+        The existing manager owns the Ollama gateway/visitor and its restart
+        policy. Never use process-name killing or modify a remote Windows host.
+        """
+        with self.lock:
+            if self.connections_stopped:
+                return
+            self.closing = True
+            errors = []
+            ollama = self.config.get("ollama", {})
+            if ollama.get("manager"):
+                try:
+                    self.action("ollama", "stop")
+                except Exception:
+                    errors.append("Ollama 连接尚未停止")
+            try:
+                self.tunnel.stop()
+            except Exception:
+                errors.append("Sub2API 连接尚未停止")
+            try:
+                ports = set()
+                if ollama.get("manager"):
+                    url = urllib.parse.urlsplit(ollama.get("url", ""))
+                    if url.hostname in ("127.0.0.1", "localhost", "::1") and url.port:
+                        ports.add(url.port)
+                    else:
+                        errors.append("无法确认本机 Ollama 接口端口")
+                    visitor = ollama.get("visitor_config")
+                    if visitor and Path(visitor).is_file():
+                        data = tomllib.loads(Path(visitor).read_text(encoding="utf-8-sig"))
+                        ports.update(v["bindPort"] for v in data.get("visitors", [])
+                                     if v.get("bindAddr") == "127.0.0.1" and
+                                     isinstance(v.get("bindPort"), int))
+                    else:
+                        errors.append("无法读取 Ollama 本机 visitor 配置")
+                    if (sys.platform == "darwin" and ollama.get("launchd_label") and
+                            self.ollama_running()):
+                        errors.append("Ollama 后台仍在运行")
+                sub2api = self.config.get("sub2api", {})
+                if sub2api.get("mode") == "stcp":
+                    ports.add(sub2api.get("port", 18081))
+                deadline = time.monotonic() + 5
+                while any(port_listening(port) for port in ports):
+                    if time.monotonic() >= deadline:
+                        errors.append("本地连接端口尚未关闭")
+                        break
+                    time.sleep(0.1)
+            except Exception:
+                errors.append("无法确认所有本地连接已停止")
+            if errors:
+                self.closing = False
+                raise UserError("；".join(errors) + "。后台保留，请重试全部退出。")
+            self.connections_stopped = True
+
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
@@ -271,8 +331,13 @@ class Handler(BaseHTTPRequestHandler):
                 self.chat(data)
                 return
             if self.path == "/api/shutdown":
-                self.send(200, {"message": "正在关闭控制台及其访客子进程；独立的 Windows 服务和 Ollama 保持原状态。"})
-                threading.Thread(target=self.server.shutdown, daemon=True).start()
+                self.server.controller.shutdown_connections()
+                self.server.full_quit_requested = True
+                try:
+                    self.send(200, {"message": "本机 Ollama、Sub2API 连接均已停止，正在退出控制台。",
+                                    "shutdown_complete": True})
+                finally:
+                    threading.Thread(target=self.server.shutdown, daemon=True).start()
                 return
             if self.path != "/api/action":
                 raise UserError("不支持的操作。")
@@ -285,6 +350,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send(503, {"error": "操作未完成，请检查配置和服务状态；原有登录及会话保持独立。"})
 
     def chat(self, data):
+        if getattr(self.server.controller, "closing", False):
+            raise UserError("正在全部退出，已停止接收新聊天请求。")
         model, messages = data.get("model"), data.get("messages")
         if not isinstance(model, str) or not model or not isinstance(messages, list) or not messages:
             raise UserError("请选择模型并输入消息。")
@@ -352,6 +419,9 @@ def serve(config_path, owner_pid=None):
     server.authority = f"127.0.0.1:{port}"
     server.token = secrets.token_urlsafe(32)
     server.instance = secrets.token_hex(16)
+    server.full_quit_requested = False
+    # A previous instance's completion is never an exit receipt for this one.
+    (controller.runtime / "data/shutdown.json").unlink(missing_ok=True)
     logs = controller.runtime / "logs"
     logs.mkdir(mode=0o700, exist_ok=True)
     logger = logging.getLogger("local-ai-console")
@@ -379,7 +449,17 @@ def serve(config_path, owner_pid=None):
         server.serve_forever(poll_interval=0.3)
     finally:
         owner_done.set()
-        controller.tunnel.stop()
+        cleanup_complete = False
+        try:
+            controller.shutdown_connections()
+            cleanup_complete = True
+        except Exception:
+            logger.warning("local connection shutdown incomplete")
         controller.pool.shutdown(wait=False, cancel_futures=True)
         server.server_close()
+        if cleanup_complete:
+            write_json(controller.runtime / "data/shutdown.json", {
+                "instance": server.instance, "complete": True,
+                "full_quit_requested": server.full_quit_requested,
+            })
         lock.close()

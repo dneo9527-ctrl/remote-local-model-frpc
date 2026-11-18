@@ -1,0 +1,35 @@
+{
+  "version": "0.2.0-preview.4",
+  "change": "Quit stops all local connections configured for the app, including existing Ollama gateway/visitor",
+  "actual_trigger": "Clicked web All Quit, same authenticated shutdown endpoint as native menu",
+  "live_verification": {
+    "first_exit_stopped_existing_ollama_gateway_and_visitor": true,
+    "ports_closed": {
+      "11435": true,
+      "11436": true,
+      "18081": true,
+      "18765": true
+    },
+    "ollama_launchagent_unloaded": true,
+    "ollama_launchagent_paused": true,
+    "backend_exited": true,
+    "native_menu_exited": true,
+    "matching_instance_completion_receipt": true,
+    "reopen_keeps_connections_off": true,
+    "repeated_all_quit_succeeded": true,
+    "configuration_files_unchanged": true
+  },
+  "isolated_checks": {
+    "mac_console": 45,
+    "updater_and_launcher": 24,
+    "passed": true,
+    "manager_failure_retains_backend_for_retry": true,
+    "missing_visitor_fails_closed": true,
+    "shutdown_blocks_new_starts_routes_chats": true
+  },
+  "native_build": "Swift compile and ad-hoc signature verification passed",
+  "native_menu_direct_click": "not verified; web button uses the same shutdown endpoint",
+  "remote_health_models_responses": "deferred; no requests made",
+  "windows_changed": false,
+  "current_state": "all local connections, console and menu closed"
+}
