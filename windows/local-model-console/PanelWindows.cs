@@ -93,6 +93,18 @@ namespace LocalAIControl {
   }
   Button SmallButton(string label){return new Button{Content=label,Padding=new Thickness(14,6,14,6),MinHeight=32,Margin=new Thickness(0,0,8,0)};}
   TextBlock Paragraph(string text,bool bold=false){return new TextBlock{Text=text,TextWrapping=TextWrapping.Wrap,Foreground=Brush("#4C6280"),FontWeight=bold?FontWeights.SemiBold:FontWeights.Normal,Margin=new Thickness(0,0,0,12)};}
+  Window BuildStopDialog(string action) {
+   bool all=action=="StopAll";var dialog=SmallWindow("停止服务",320);dialog.MinHeight=0;dialog.MinWidth=440;dialog.Width=480;dialog.Height=320;dialog.ResizeMode=ResizeMode.NoResize;dialog.Background=Brushes.White;
+   var layout=new Grid{Margin=new Thickness(26)};layout.RowDefinitions.Add(new RowDefinition{Height=new GridLength(1,GridUnitType.Star)});layout.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
+   var body=new StackPanel();body.Children.Add(new TextBlock{Text=all?"停止模型与远程连接？":"停止模型服务？",FontSize=21,FontWeight=FontWeights.SemiBold,Foreground=Brush("#243B53"),Margin=new Thickness(0,0,0,12)});
+   body.Children.Add(Paragraph("正在使用这个模型端口的本机和远端问答将中断。"));
+   var scope=new StackPanel{Margin=new Thickness(13,10,13,10)};scope.Children.Add(new TextBlock{Text="Ollama 模型 API  ·  端口 "+ModelPort,Foreground=Brush("#526B86"),FontSize=12,Margin=new Thickness(0,0,0,6)});
+   scope.Children.Add(new TextBlock{Text=all?"frp 远程连接  ·  本项目隧道":"frp 远程连接继续运行",Foreground=Brush("#526B86"),FontSize=12});body.Children.Add(new Border{Background=Brush("#F6F8FC"),CornerRadius=new CornerRadius(9),Child=scope});
+   body.Children.Add(new TextBlock{Text="Tailscale 由系统管理。重新启动后可继续连接。",Foreground=Brush("#8A98AA"),FontSize=11,Margin=new Thickness(0,11,0,0)});layout.Children.Add(body);
+   var row=new StackPanel{Orientation=Orientation.Horizontal,HorizontalAlignment=HorizontalAlignment.Right,Margin=new Thickness(0,16,0,0)};var cancel=SmallButton("取消");cancel.IsCancel=true;cancel.IsDefault=true;cancel.MinWidth=76;var confirm=SmallButton(all?"停止服务":"停止模型");confirm.Background=Brush("#C95365");confirm.BorderBrush=confirm.Background;confirm.Foreground=Brushes.White;confirm.MinWidth=96;confirm.Margin=new Thickness(0);
+   cancel.Name="CancelStopButton";confirm.Name="ConfirmStopButton";NameScope.SetNameScope(dialog,new NameScope());dialog.RegisterName(cancel.Name,cancel);dialog.RegisterName(confirm.Name,confirm);cancel.Click+=(s,e)=>dialog.DialogResult=false;confirm.Click+=(s,e)=>dialog.DialogResult=true;row.Children.Add(cancel);row.Children.Add(confirm);Grid.SetRow(row,1);layout.Children.Add(row);dialog.Content=layout;dialog.ContentRendered+=(s,e)=>cancel.Focus();return dialog;
+  }
+  bool ConfirmStop(string action){if(busy)return false;try{return BuildStopDialog(action).ShowDialog()==true;}catch{Banner("无法读取停止范围，请先检查模型端口设置；本次未停止服务。","#FFF0D8");return false;}}
   void ConnectionWindow() {
    var dialog=SmallWindow("连接信息",415);var body=new StackPanel{Margin=new Thickness(24)};
    body.Children.Add(Paragraph("这台 Windows",true));body.Children.Add(Paragraph(ModelUrl+"  ·  Ollama\n"+ModelUrl+"/v1  ·  OpenAI 兼容"));

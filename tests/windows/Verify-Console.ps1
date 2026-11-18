@@ -54,6 +54,9 @@ try {
     Invoke-IsolatedCheck -Name 'service-controls' -Script (Join-Path $source 'check-service-controls.ps1') -CountPattern 'SERVICE_CONTROL_CHECKS_PASSED=(\d+)' -MinimumCount 33
     Invoke-IsolatedCheck -Name 'layout-settings' -Script (Join-Path $source 'check-layout-settings.ps1') -CountPattern 'LAYOUT_SETTINGS_CHECKS_PASSED=(\d+)' -MinimumCount 59
     Invoke-IsolatedCheck -Name 'model-choice' -Script (Join-Path $source 'check-model-choice.ps1') -Arguments @('-Executable',(Join-Path $source 'LocalAI-Control.exe')) -CountPattern 'MODEL_CHOICE_CHECKS_PASSED=(\d+)' -MinimumCount 26
+    Invoke-IsolatedCheck -Name 'stop-all' -Script (Join-Path $source 'check-stop-all.ps1') -CountPattern 'STOP_ALL_CHECKS_PASSED=(\d+)' -MinimumCount 29
+    Invoke-IsolatedCheck -Name 'stop-ui' -Script (Join-Path $source 'check-stop-ui.ps1') -Arguments @('-Executable',(Join-Path $source 'LocalAI-Control.exe')) -CountPattern 'STOP_UI_CHECKS_PASSED=(\d+)' -MinimumCount 16
+    Invoke-IsolatedCheck -Name 'native-stop-processes' -Script (Join-Path $source 'check-stop-processes.ps1') -CountPattern 'STOP_PROCESS_CHECKS_PASSED=(\d+)' -MinimumCount 7
     Invoke-IsolatedCheck -Name 'offline-preview' -Script (Join-Path $PSScriptRoot 'Render-ConsolePreview.ps1') -Arguments @('-Executable',(Join-Path $source 'LocalAI-Control.exe'),'-OutputDirectory',$output)
     $success = $true
 } finally {

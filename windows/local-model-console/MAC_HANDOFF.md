@@ -39,3 +39,11 @@ Mac 整合应保持相同设置含义，但用本机原有锁与进程适配器�
 默认模型标签可点开已安装模型下拉，Status 新增 Models 名称数组，使用当前 OllamaPort 的 /api/tags。保存前重新读取本端口模型列表，精确验证名字，原子更新 model-settings.json.defaultModel，保留 profiles/context/hardware/providers/未知字段并备份。当前简写默认值可匹配同名 :latest 标签，不忽略名字大小写。没有已安装的当前项时需用户主动选择，不擅自预选另一个。离线/空列表不改配置；保存不触发推理、下载或更改客户端的请求模型。
 
 Ollama/frp 详情点击共用原设置窗，分别聚焦模型/frps端口；Tailscale 详情为只读信息与复制IP。两端整合请保留这些操作语义，不能将网络状态当成模型已可通过 Tailscale 访问。新增 check-model-choice 覆盖未知字段保留、冲突拒绝、无效/缺失模型和 latest 兼容。
+
+## 2026-11-19 · 1.1.2 视觉与全局停止
+
+运行时主按钮执行StopAll，逐项停止确切归属的本项目frpc和当前端口Ollama serve，再核对退出；返回部分失败，不追杀重启/未知进程。Status新增OllamaListening，不能用API离线推断进程已停。Tailscale由系统管理。
+
+选中未应用线路时主按钮应用并切线，同时在横幅保留停止当前服务；部分运行提供独立补齐启动，避免主按钮对相同状态交替表示停止/启动。模型停止使用同风格确认窗，默认取消，Esc/Enter取消。独立frp停止仍保留。界面为浅色工具台、细状态点、无粉框局部停止，输入与模型下拉控件也统一。Mac整合保持这些状态语义，不套用Windows CIM/Mutex实现。
+
+新增check-stop-all、check-stop-ui及check-stop-processes；最后一个实际编译并结束自己创建的临时无业务进程，验证端口/路径归属并保留同名无关进程，不使用真实Ollama/frpc或个人配置。
