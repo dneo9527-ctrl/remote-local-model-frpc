@@ -28,6 +28,9 @@ localIP = '127.0.0.1'
 useEncryption = true
 localPort = 8888
 '@
+# Here-string line endings follow Git checkout. Give mutation fixtures a fixed
+# baseline, then explicitly exercise both persisted newline styles below.
+$base=$base.Replace("`r`n","`n")
 foreach($newline in @("`n","`r`n")){
  foreach($bom in @($false,$true)){
   $text=$base.Replace("`r`n","`n").Replace("`n",$newline)
