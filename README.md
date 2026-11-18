@@ -17,6 +17,8 @@ Mac 首页只保留连接开关、VPS 线路、Cherry Studio 和网页聊天；�
 
 [操作步骤](docs/操作步骤.md) · [双端维护与更新](docs/维护与更新.md) · [验收状态](docs/验收.md) · [GitHub 发布](https://github.com/dneo9527-ctrl/remote-local-model-frpc/releases)
 
+Sub2API 独立扩展的 Mac 现场结果与待办见 [Mac Sub2API 交接](docs/MAC_SUB2API_HANDOFF.md)。该连接与已验收的 Ollama 连接分别管理。
+
 ## 运行与连接
 
 Python 3.11+，仅标准库。复用已有 Python/frpc；Mac 不安装 Ollama、模型权重或 Docker。完整源码解压后，将示例配置复制到**源码目录外**，填写本机已安装的路径：
