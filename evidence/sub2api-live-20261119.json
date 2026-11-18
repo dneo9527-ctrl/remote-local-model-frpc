@@ -1,0 +1,22 @@
+{
+  "checked_at": "2026-11-19T01:12:12+08:00",
+  "authorization": "User confirmed server started and requested continuing; remote acceptance resumed",
+  "windows_branch_observed": "6f38ba6acb49b8e1a45cb495004a17eeb34125f3",
+  "mac_runtime_version": "0.2.0-preview.4",
+  "selected_route": "private-stcp",
+  "visitor_started_by_existing_console": true,
+  "reused_original_connection_config": true,
+  "local_listener": "127.0.0.1:18081",
+  "frps_login": {"passed": true, "time": "2026-11-19T01:11:51+08:00"},
+  "visitor_listener": "running",
+  "health": {"passed": false, "error_type": "ConnectionResetError"},
+  "console_manual_health_recheck": {"checked_at": "2026-11-19T01:14:33+08:00", "passed": false, "error_type": "ConnectionResetError"},
+  "correlated_frpc_error": "custom listener for [sub2api_ke] doesn't exist",
+  "key_authentication": "not tested; health failed",
+  "models": "not tested; health failed",
+  "responses_stream": "not tested; health failed",
+  "cc_switch_target_supplier": "Windows Sub2API, saved but not activated",
+  "codex_app": "not verified",
+  "windows_operation_from_mac": false,
+  "next_step": "Windows verify original Sub2API Compose project and current Docker provider registration"
+}

@@ -1,5 +1,15 @@
 # Mac Sub2API 连接与 CC Switch 交接
 
+## 当前联调：Mac 已就绪，等待 Windows provider（2026-11-19 01:12 +08:00）
+
+用户确认服务器开启并要求继续，已恢复远端验收。Mac 已通过当前控制台开启原 `private-stcp`，复用原配置和端口：01:11:51 frps 登录成功、visitor 监听成功；01:12:12 `/health` 连接重置，对应新日志为 `custom listener for [sub2api_ke] doesn't exist`。尚未进入 Key、models 和 Responses 请求，CC Switch 也尚未切换到 Windows Sub2API。
+
+01:14:33 通过控制台手动“检查 API”再次验证，仍为 `ConnectionResetError`；当前页面已缓存该失败结果，本机 visitor 继续运行等待复用。
+
+已 fetch 并读取 Windows 当前 `6f38ba6acb49b8e1a45cb495004a17eeb34125f3`。Windows 模型面板与 `windows/sub2api-local` Docker 项目仍为独立入口；模型面板运行不能证明 Sub2API provider 已注册。当前报错表示所连接的 frps 上没有可用的同名 listener，仍需 Windows 核验当前运行状态与连接约定；不凭历史日志推断现在在线。
+
+给 Windows 接续方：从**原部署目录**启动 `Start-Sub2API.cmd`，检查 `sub2api-local` 四容器运行及原三个服务健康；确认 `sub2api-frpc` 最新启动日志包含登录成功和 `[sub2api_ke] start proxy success`。容器内目标保持 `sub2api:8080`，核对原 frps/端口/配套认证，但不要提交这些私有值。请将本轮实际时间、测试结果与提交 SHA 写入 Windows 分支的 `windows/sub2api-local/MAC_HANDOFF.md`。Mac 没有操作 Windows、改端口或重建服务，现有 visitor 保留等待复用。
+
 ## 当前：全部退出（2026-11-19，preview.4）
 
 用户明确纠正：退出就是关闭这个 App 的全部本机连接。已更新为 `0.2.0-preview.4`，菜单栏和网页均使用 **全部退出**：调用原 Ollama 管理器暂停网关、visitor 及其登录恢复，停止 Sub2API visitor，被动确认连接端口关闭后再关闭控制台和菜单栏。Windows 服务、模型、账号和私人配置不修改。关闭网页仍允许后台继续运行；真正全部退出后，下次打开 App 会显示连接已关闭，需要时再按开关恢复。
