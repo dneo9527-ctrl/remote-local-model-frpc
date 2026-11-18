@@ -81,3 +81,5 @@ provider 配置启用 `transport.tls.enable=true` 和 `transport.useEncryption=t
 这些检查在隔离目录执行，未从仓库副本启动容器或隧道，运行中的旧目录未被改写。历史部署验证用的凭据与结果原文不上传。
 
 上游来源和许可证见 [THIRD-PARTY.md](THIRD-PARTY.md)。
+
+Windows provider 的最新实机修复记录、脱敏注册日志和待 Mac 验收项目见 [MAC_HANDOFF.md](MAC_HANDOFF.md)。两端通过同一仓库的各自分支交接，当前运行状态以最新实查时间为准。
