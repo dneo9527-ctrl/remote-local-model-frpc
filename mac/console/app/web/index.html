@@ -1,21 +1,40 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>本地模型连接</title><link rel="stylesheet" href="/style.css"><script src="/console.js" defer></script></head>
-<body><header><div class="brand">LOCAL AI <span>/ MAC 接收端</span></div><div class="heading"><div><h1>本地模型连接</h1><p>Windows 运行模型 · Mac 连接与聊天</p></div><span class="badge" id="version">正在检查</span></div></header>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>本地模型连接</title><link rel="stylesheet" href="/style.css"><script src="/console.js" defer></script></head>
+<body class="console-home">
+<header>
+  <div class="brand">LOCAL AI <span>/ MAC 接收端</span></div>
+  <div class="heading"><h1>本地模型连接</h1><div class="header-actions"><span class="badge" id="version">正在检查</span><button class="text-button" id="refresh">↻ 刷新</button></div></div>
+</header>
 <main class="core-shell">
-<section class="card connection-card"><div class="card-title"><span class="symbol">⇄</span><h2>Windows 模型</h2><button class="switch" role="switch" aria-checked="false" aria-label="模型连接开关" id="ollama-toggle" disabled><span></span></button></div><strong id="ollama-state">正在检查</strong><p id="ollama-detail">正在读取连接状态</p><code id="ollama-url">http://127.0.0.1:11435</code></section>
-<section class="panel"><div class="section-head"><h2>VPS 线路</h2><button class="text-button" id="refresh">↻ 刷新</button></div><div class="route-row"><label for="model-route">当前线路</label><select id="model-route" aria-label="VPS 线路" disabled><option value="">读取中…</option></select><button class="secondary" id="change-route" disabled>切换线路</button></div><p class="muted">Windows 和 Mac 需选择同一 VPS。切换会中断当前连接，请在回答结束后操作。</p></section>
-<section class="card sub2api-card" id="sub2api-card" hidden aria-labelledby="sub2api-title">
-  <div class="card-title"><span class="symbol">⇄</span><h2 id="sub2api-title">Windows Sub2API</h2><button class="switch" role="switch" aria-checked="false" aria-label="Sub2API 连接开关" id="sub2api-toggle" disabled><span></span></button></div>
-  <strong id="sub2api-state">正在读取本地连接</strong>
-  <p id="sub2api-detail">正在读取连接状态</p>
-  <code id="sub2api-url">http://127.0.0.1:18081/v1</code>
-  <div class="api-status"><span>远端 API</span><b class="off" id="sub2api-api-state">未检查</b><button class="text-button" id="sub2api-check" disabled>检查 API</button></div>
-  <p class="api-detail" id="sub2api-api-detail">点击“检查 API”后才会发送健康检查。</p>
-  <div class="route-row sub2api-route"><label for="sub2api-route">Sub2API 连接</label><select id="sub2api-route" aria-label="Sub2API 连接配置" disabled><option value="">读取中…</option></select><button class="secondary" id="change-sub2api-route" disabled>切换连接</button></div>
-  <div class="sub2api-handoff"><p>在 CC Switch 中选择 <b>Windows Sub2API</b>，切换后重启 Codex。供应商与 API Key 由 CC Switch 管理。</p><button class="secondary" id="ccswitch" disabled>打开 CC Switch ↗</button></div>
-</section>
-<section><div class="section-head"><h2>开始聊天</h2></div><div class="app-grid"><button class="app-button" id="cherry"><span class="app-icon cherry">C</span><span><b>Cherry Studio</b><small>使用已有模型与会话</small></span><span>↗</span></button><a class="app-button" href="/chat" target="_blank" rel="noopener"><span class="app-icon web">W</span><span><b>网页聊天</b><small>选模型 · 流式回答</small></span><span>↗</span></a></div></section>
-<div id="message" class="message" role="status" aria-live="polite">正在读取状态…</div>
-<details class="management"><summary>管理 · 更新与日志</summary><div class="actions"><button class="secondary" id="updates">检查更新</button><a class="secondary" href="https://github.com/dneo9527-ctrl/remote-local-model-frpc/releases" target="_blank" rel="noopener noreferrer">版本下载 ↗</a><button class="secondary" id="logs">查看日志</button><button class="secondary" id="quit">退出控制台</button></div><p class="muted">更新保留旧版和私人配置。退出此页不会停止独立运行的模型连接。</p></details>
-<footer><span>仅本机访问 · 模型在 Windows · 请求中断不自动重放</span></footer>
-</main></body></html>
+  <div class="connection-grid">
+    <section class="card connection-card">
+      <div class="card-title"><span class="symbol">⇄</span><h2>Windows 模型</h2><button class="switch" role="switch" aria-checked="false" aria-label="模型连接开关" id="ollama-toggle" disabled><span></span></button></div>
+      <strong id="ollama-state">正在检查</strong>
+      <code id="ollama-url">http://127.0.0.1:11435</code>
+      <div class="launch-actions"><button class="secondary" id="cherry">Cherry Studio ↗</button><a class="secondary" href="/chat" target="_blank" rel="noopener">网页聊天 ↗</a></div>
+      <details class="connection-settings"><summary>线路与详情</summary>
+        <p id="ollama-detail">正在读取连接状态</p>
+        <div class="route-row"><label for="model-route">VPS 线路</label><select id="model-route" aria-label="VPS 线路" disabled><option value="">读取中…</option></select><button class="secondary" id="change-route" disabled>切换线路</button></div>
+        <p class="muted">与 Windows 选择同一 VPS，请在回答结束后切换。</p>
+      </details>
+    </section>
+    <section class="card sub2api-card" id="sub2api-card" hidden aria-labelledby="sub2api-title">
+      <div class="card-title"><span class="symbol">⇄</span><h2 id="sub2api-title">Windows Sub2API</h2><button class="switch" role="switch" aria-checked="false" aria-label="Sub2API 连接开关" id="sub2api-toggle" disabled><span></span></button></div>
+      <strong id="sub2api-state">正在读取本地连接</strong>
+      <code id="sub2api-url">http://127.0.0.1:18081/v1</code>
+      <div class="api-status"><span>API</span><b class="off" id="sub2api-api-state">未检查</b><button class="text-button" id="sub2api-check" disabled>检查 API</button></div>
+      <div class="launch-actions"><button class="secondary" id="ccswitch" disabled>打开 CC Switch ↗</button></div>
+      <details class="connection-settings"><summary>连接与详情</summary>
+        <p id="sub2api-detail">正在读取连接状态</p>
+        <div class="route-row"><label for="sub2api-route">Sub2API 连接</label><select id="sub2api-route" aria-label="Sub2API 连接配置" disabled><option value="">读取中…</option></select><button class="secondary" id="change-sub2api-route" disabled>切换连接</button></div>
+        <p id="sub2api-api-detail">点击“检查 API”后才会发送健康检查。</p>
+        <p>CC Switch 选择 <b>Windows Sub2API</b>，切换后重启 Codex。</p>
+      </details>
+    </section>
+  </div>
+  <div id="message" class="message" role="status" aria-live="polite">正在读取状态…</div>
+  <details class="management"><summary>管理 · 更新与日志</summary><div class="actions"><button class="secondary" id="updates">检查更新</button><a class="secondary" href="https://github.com/dneo9527-ctrl/remote-local-model-frpc/releases" target="_blank" rel="noopener noreferrer">版本下载 ↗</a><button class="secondary" id="logs">查看日志</button><button class="secondary" id="quit">退出控制台</button></div><p>关闭网页不会停止连接；退出控制台会停止其管理的 Sub2API 连接。</p></details>
+  <footer>仅本机访问 · 模型在 Windows</footer>
+</main>
+</body></html>

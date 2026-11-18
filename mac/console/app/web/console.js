@@ -193,9 +193,7 @@ $('quit').onclick = async () => {
     const response = await fetch('/api/session');
     if (!response.ok) throw Error('控制台会话不可用');
     csrf = (await response.json()).csrf;
-    if (await refresh()) say(state.sub2api
-      ? '选择连接，再打开聊天；Sub2API 的 API 检查需手动点击。'
-      : '选择与 Windows 相同的线路，再打开聊天。');
+    if (await refresh()) say('就绪');
   } catch (error) {
     say('无法连接本机控制台，请从应用入口重开。', true);
   }

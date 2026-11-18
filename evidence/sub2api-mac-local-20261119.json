@@ -6,6 +6,13 @@
   "status_refresh": "passive local listener inspection; no Sub2API network probe",
   "automatic_health_checks": false,
   "visitor_after_installation": "stopped; no automatic startup",
+  "compact_home": {
+    "viewport": [1280, 720],
+    "previous_page_height": 1335,
+    "content_height": 541,
+    "horizontal_overflow": false,
+    "details_expand_verified": true
+  },
   "tests": {
     "mac_console_isolated": {"count": 37, "passed": true},
     "updater_and_launcher": {"count": 24, "passed": true},
