@@ -30,8 +30,11 @@ def main():
     parser.add_argument("--config", type=Path, default=os.environ.get("REMOTE_MODEL_CONFIG"))
     parser.add_argument("--state", type=Path, default=os.environ.get("REMOTE_MODEL_UPDATE_STATE"))
     parser.add_argument("--foreground", action="store_true", help="Keep console in this terminal")
+    parser.add_argument("--owner-pid", type=int, help="Menu app parent; only with --foreground")
     parser.add_argument("--show-source", action="store_true", help="Resolve selected source without starting it")
     args = parser.parse_args()
+    if args.owner_pid is not None and (not args.foreground or args.owner_pid != os.getppid()):
+        parser.error("--owner-pid must name the foreground launcher's actual parent")
     if not args.config:
         parser.error("Supply --config /private/settings.json or REMOTE_MODEL_CONFIG. Do not put credentials in the source tree.")
     config = args.config.expanduser().resolve()
@@ -56,6 +59,8 @@ def main():
             environment.pop("PYTHONPATH", None)
             arguments = [sys.executable, "-B", "-m", "app",
                          "serve" if args.foreground else "open", "--config", str(config)]
+            if args.owner_pid is not None:
+                arguments.extend(["--owner-pid", str(args.owner_pid)])
             if args.foreground:
                 # The foreground console owns this process, so a targeted stop
                 # cannot orphan a nested service behind a launcher process.

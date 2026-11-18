@@ -17,9 +17,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("action", choices=["open", "serve"], default="open", nargs="?")
     parser.add_argument("--config", required=True, type=Path)
+    parser.add_argument("--owner-pid", type=int)
     args = parser.parse_args()
+    if args.owner_pid is not None and (args.action != "serve" or args.owner_pid <= 1 or
+                                       args.owner_pid != os.getppid()):
+        parser.error("owner must be this server's actual menu parent")
     if args.action == "serve":
-        serve(args.config)
+        serve(args.config, owner_pid=args.owner_pid)
         return
     cfg = json.loads(args.config.read_text())
     runtime = Path(cfg["runtime"])

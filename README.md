@@ -2,7 +2,7 @@
 
 **Windows 运行模型，Mac 连接与聊天。** 两端共用一个仓库和版本渠道，实际节点配置与密钥各自保存在本机。
 
-Mac 首页提供模型连接、VPS 线路、Cherry Studio 和网页聊天；配置过 Sub2API 时显示独立连接卡片及 CC Switch 入口。更新与日志折叠到管理入口。Codex 供应商和认证由 CC Switch 管理。
+Mac 首页提供模型连接、VPS 线路、Cherry Studio 和网页聊天；配置过 Sub2API 时显示独立连接卡片及 CC Switch 入口。原生 Mac App 提供菜单栏运行图标、打开页面与退出后台。更新与日志折叠到管理入口。Codex 供应商和认证由 CC Switch 管理。
 
 | 组件 | 源码 | 当前范围 |
 | --- | --- | --- |

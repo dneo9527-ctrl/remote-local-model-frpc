@@ -233,7 +233,8 @@ class Handler(BaseHTTPRequestHandler):
         route = urllib.parse.urlsplit(self.path).path
         try:
             if route == "/api/session":
-                self.send(200, {"service": "local-ai-console", "version": VERSION, "csrf": self.server.token})
+                self.send(200, {"service": "local-ai-console", "version": VERSION, "csrf": self.server.token,
+                                "instance": getattr(self.server, "instance", None)})
             elif route == "/api/status":
                 self.send(200, self.server.controller.status())
             elif route == "/api/models":
@@ -340,7 +341,7 @@ class Handler(BaseHTTPRequestHandler):
                 pass
 
 
-def serve(config_path):
+def serve(config_path, owner_pid=None):
     os.umask(0o077)
     controller = Controller(config_path)
     lock = FileLock(controller.runtime / "data/console.lock")
@@ -350,21 +351,34 @@ def serve(config_path):
     server.controller = controller
     server.authority = f"127.0.0.1:{port}"
     server.token = secrets.token_urlsafe(32)
+    server.instance = secrets.token_hex(16)
     logs = controller.runtime / "logs"
     logs.mkdir(mode=0o700, exist_ok=True)
     logger = logging.getLogger("local-ai-console")
     logger.setLevel(logging.INFO)
     logger.addHandler(RotatingFileHandler(logs / "console.log", maxBytes=1024 * 1024, backupCount=2))
-    write_json(controller.runtime / "data/server.json", {"pid": os.getpid(), "url": "http://" + server.authority})
+    write_json(controller.runtime / "data/server.json", {"pid": os.getpid(), "url": "http://" + server.authority,
+                                                        "instance": server.instance})
 
     def stop(*_):
         threading.Thread(target=server.shutdown, daemon=True).start()
 
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, stop)
+    owner_done = threading.Event()
+    if owner_pid is not None:
+        def watch_owner():
+            # A crashed/force-quit menu must not orphan its console and visitor.
+            # PPID also protects against PID reuse; no unrelated process is killed.
+            while not owner_done.wait(0.5):
+                if os.getppid() != owner_pid:
+                    server.shutdown()
+                    return
+        threading.Thread(target=watch_owner, daemon=True).start()
     try:
         server.serve_forever(poll_interval=0.3)
     finally:
+        owner_done.set()
         controller.tunnel.stop()
         controller.pool.shutdown(wait=False, cancel_futures=True)
         server.server_close()

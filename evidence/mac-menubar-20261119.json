@@ -1,0 +1,38 @@
+{
+  "version": "0.2.0-preview.3",
+  "scope": "Mac menu app and local backend only",
+  "native_icon": {
+    "appkit_created": true,
+    "status_item_visible": true,
+    "image_loaded": true,
+    "no_dock_icon": true
+  },
+  "lifecycle": {
+    "owned_foreground_backend_parent_matches": true,
+    "repeated_app_launch_same_process": true,
+    "actual_parent_death_backend_cleanup": true,
+    "menu_quit_direct_click": "not verified; CUA cannot read this windowless accessory app",
+    "local_shutdown_and_parent_death_fixture_tests": "passed"
+  },
+  "checks": {
+    "console_isolated": 41,
+    "updater_and_launcher": 24,
+    "native_swift_build": "passed",
+    "ad_hoc_signature_verification": "passed",
+    "source_files_match": 109,
+    "private_value_scan": "passed"
+  },
+  "preserved": {
+    "ollama_gateway_pid": true,
+    "ollama_visitor_pid": true,
+    "config_hashes": {
+      "config.toml": true,
+      "settings.json": true
+    },
+    "existing_app_path": true,
+    "original_app_and_source_backups": true
+  },
+  "remote_acceptance": "deferred by user",
+  "added_login_items": false,
+  "release_created": false
+}
