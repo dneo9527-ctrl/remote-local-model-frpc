@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Tunnel.ps1')
 
 function New-LocalSecret {
@@ -39,7 +39,7 @@ function Write-NewLocalFile([string]$Path, [string]$Content) {
 }
 
 Invoke-Sub2ApiLock {
-foreach ($directory in @('bin', 'frp', 'logs')) {
+foreach ($directory in @('frp', 'logs')) {
     New-Item -ItemType Directory -Path (Join-Path $PSScriptRoot $directory) -Force | Out-Null
 }
 
@@ -64,5 +64,6 @@ if (Test-Path -LiteralPath $frpPath) {
     Write-NewLocalFile $frpPath $content
     Write-Host 'Created frp/frpc.toml with a new STCP secret.'
 }
-Write-Host 'Next: edit frp/frpc.toml (serverAddr, serverPort, auth.token), install frpc, then run Start-Sub2API.cmd.'
+Write-Host 'Next: edit frp/frpc.toml (serverAddr, serverPort, auth.token), then run Start-Sub2API.cmd. Docker supplies frpc.'
+
 }

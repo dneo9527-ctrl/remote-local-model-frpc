@@ -15,6 +15,7 @@ if (-not $Executable) {
     foreach($reference in $references){$arguments+=('/reference:'+$reference)}
     foreach($flag in Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'flags') -Filter '*.png' -File){$arguments+=('/resource:'+$flag.FullName+',LocalAI.Flag.'+$flag.Name)}
     $arguments+=(Join-Path $PSScriptRoot 'LocalAI-Control.cs')
+    foreach($extra in @('PanelConfig.cs','PanelExport.cs','PanelWindows.cs')){$arguments+=(Join-Path $PSScriptRoot $extra)}
     & (Join-Path $framework 'csc.exe') @arguments
     if($LASTEXITCODE -ne 0){throw 'UI regression build failed'}
 }

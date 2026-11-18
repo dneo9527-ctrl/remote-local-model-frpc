@@ -16,6 +16,7 @@ function Get-OllamaTags {
 function Get-NetTCPConnection {
  param($LocalPort,$State,$ErrorAction)
  $script:listenerReads++
+ $script:lastListenerPort=$LocalPort
  if($script:mode -eq 'healthy'){throw 'Healthy Ollama must not inspect/reconfigure listeners'}
  if($script:mode -eq 'occupied'){return [pscustomobject]@{OwningProcess=123;LocalAddress='127.0.0.1'}}
  return @()
@@ -38,6 +39,16 @@ try {
  Check ($result -eq $script:fixtureTags -and $script:spawned.Count -eq 1 -and $script:spawned[0].Host -eq '127.0.0.1:11434') 'new Ollama starts on loopback only'
  Check ($script:spawned[0].Path -eq $ollamaExe -and $script:spawned[0].Arguments -eq 'serve') 'only expected Ollama serve is spawned'
  Check ($env:OLLAMA_HOST -eq 'fixture-parent-host:5555') 'temporary loopback environment is restored'
+ [void][IO.Directory]::CreateDirectory((Join-Path $fixture 'config'))
+ $preferencePath=Join-Path $fixture 'config\panel-preferences.json'
+ [IO.File]::WriteAllText($preferencePath,'{"ollamaPort":12580,"allowExternalMetadata":false}',[Text.UTF8Encoding]::new($false))
+ $script:spawned=@();$script:mode='stopped';$result=Ensure-LocalOllama
+ Check ($result -eq $script:fixtureTags -and $script:spawned.Count -eq 1 -and $script:spawned[0].Host -eq '127.0.0.1:12580') 'configured model port starts a loopback-only server'
+ Check ($script:lastListenerPort -eq 12580) 'custom model startup inspects only the selected port, never replaces the old one'
+ Check ($env:OLLAMA_HOST -eq 'fixture-parent-host:5555') 'custom port startup restores caller environment'
+ [IO.File]::WriteAllText($preferencePath,'{"ollamaPort":65536}',[Text.UTF8Encoding]::new($false))
+ $script:spawned=@();$failed=$false;try{[void](Ensure-LocalOllama)}catch{$failed=$true}
+ Check ($failed -and $script:spawned.Count -eq 0) 'invalid configured model port cannot start a process'
 }finally{[Environment]::SetEnvironmentVariable('OLLAMA_HOST',$originalHost,'Process')}
 $exe=Join-Path $fixture 'bridge.exe';$config=Join-Path $fixture 'config with space\frpc.toml'
 $process=[pscustomobject]@{ExecutablePath=$exe;CommandLine=('"'+$exe+'" -c "'+$config+'"')}
@@ -64,5 +75,12 @@ Check (-not $script:capturedCommand.Contains((Join-Path $fixture 'scripts\start-
 $script:LocalAiStartScript=Join-Path $fixture 'missing-safe-helper.ps1';$failed=$false
 try {Invoke-ProjectStart $fixture}catch{$failed=$true}
 Check $failed 'missing release helper fails instead of running legacy helper'
+# Exercise the actual child-script guard using only an isolated fixture. The
+# pending marker must fail before missing model settings or any OS service call.
+$guardRoot=Join-Path $fixture 'pending-guard'
+[void][IO.Directory]::CreateDirectory((Join-Path $guardRoot 'config'))
+[IO.File]::WriteAllText((Join-Path $guardRoot 'config\.panel-port-change.pending.json'),'{"fixture":"pending"}',[Text.UTF8Encoding]::new($false))
+$guardOutput=@(& (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -NoProfile -File (Join-Path $PSScriptRoot 'scripts\start-services.ps1') -ProjectRoot $guardRoot -NoChat -NoPause 2>&1)
+Check ($LASTEXITCODE -eq 1 -and ($guardOutput -join '').Contains('端口保存尚未完成')) 'actual STCP helper exits on pending port-save marker before reading missing settings or starting anything'
 $checks|ForEach-Object{'PASS '+$_}
 'STCP_SAFETY_CHECKS_PASSED='+$checks.Count

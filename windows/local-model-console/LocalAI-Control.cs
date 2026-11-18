@@ -24,8 +24,8 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 
 [assembly: AssemblyTitle("Local AI Control")]
-[assembly: AssemblyProduct("本地模型控制台")]
-[assembly: AssemblyVersion("1.0.2.0")]
+[assembly: AssemblyProduct("远程模型控制台")]
+[assembly: AssemblyVersion("1.1.0.0")]
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8")]
 
 namespace LocalAIControl {
@@ -92,10 +92,10 @@ namespace LocalAIControl {
      try { var app=new Application(); var panel=new Panel(root); app.Run(panel.Window); }
      finally { mutex.ReleaseMutex(); }
     }
-   } catch(Exception ex) { MessageBox.Show(ex.Message,"本地模型控制台",MessageBoxButton.OK,MessageBoxImage.Error); }
+   } catch(Exception ex) { MessageBox.Show(ex.Message,"远程模型控制台",MessageBoxButton.OK,MessageBoxImage.Error); }
   }
  }
- public sealed class Panel {
+ public sealed partial class Panel {
   public Window Window {get;private set;}
   readonly string root,backend,startScript,routesPath;
   readonly bool externalMetadataEnabled;
@@ -133,16 +133,22 @@ namespace LocalAIControl {
    List.SelectionChanged+=(s,e)=> {if(!busy)UpdateStatusBanner();UpdateButtons();};
    Button("StartButton").Click+=async(s,e)=>await Action("Start");
    Button("StopButton").Click+=async(s,e)=>await Action("Stop");
+   Button("StopOllamaButton").Click+=async(s,e)=>{
+    if(MessageBox.Show(Window,"停止模型服务将中断这台电脑和远端设备的问答。仅停止已确认归属的模型监听，frp 与 Tailscale 保持运行。继续吗？","停止模型服务",MessageBoxButton.OKCancel,MessageBoxImage.Warning,MessageBoxResult.Cancel)==MessageBoxResult.OK)await Action("StopOllama");
+   };
+   Button("ConnectionButton").Click+=(s,e)=>{try{ConnectionWindow();}catch{Banner("连接偏好无法读取，请检查面板设置文件。","#FFF0D8");}};
+   Button("HistoryButton").Click+=(s,e)=>HistoryWindow();
+   Button("SettingsButton").Click+=(s,e)=>SettingsWindow();
+   Button("WebButton").Click+=async(s,e)=>await OpenWeb();
+   List.AddHandler(System.Windows.Controls.Button.ClickEvent,new RoutedEventHandler((s,e)=>{var button=e.OriginalSource as Button;if(button!=null&&button.Tag is Route){e.Handled=true;ExportRoute((Route)button.Tag);}}));
    Button("CherryButton").Click+=async(s,e)=>await Action("Cherry");
    Button("RefreshButton").Click+=async(s,e)=>{actionError="";await Refresh();};
    Button("AddRouteButton").Click+=(s,e)=>EditRoute(false);
    Button("EditRouteButton").Click+=(s,e)=>EditRoute(true);
    Button("DeleteRouteButton").Click+=(s,e)=>DeleteRoute();
    Button("ProbeButton").Click+=async(s,e)=>await ProbeRoutes(true);
-   Button("CopyWindowsButton").Click+=(s,e)=>{try{Clipboard.SetText("http://127.0.0.1:11434/v1");History("已复制 Windows 本机 OpenAI 地址：http://127.0.0.1:11434/v1");}catch{History("剪贴板暂不可用，请手动复制地址。");}};
    Button("UpdateButton").Click+=(s,e)=>{try{Process.Start(new ProcessStartInfo("https://github.com/dneo9527-ctrl/remote-local-model-frpc/releases"){UseShellExecute=true});History("已打开同一项目的版本下载页。下载与校验完成后再退出面板更新；本次未替换程序。");}catch{History("无法打开版本页，请手动访问本项目 GitHub Releases。");}};
-   Button("LogButton").Click+=(s,e)=>{try {string path=Path.Combine(root,"logs");Directory.CreateDirectory(path);Process.Start("explorer.exe",Q(path));}catch(Exception ex){Banner(ex.Message,"#FCE8E8");}};
-   timer.Interval=TimeSpan.FromSeconds(6); timer.Tick+=async(s,e)=>{await Refresh();if((DateTime.UtcNow-lastProbe).TotalSeconds>=30)await ProbeRoutes();};
+   timer.Interval=TimeSpan.FromSeconds(15); timer.Tick+=async(s,e)=>{if(!Window.IsVisible||Window.WindowState==WindowState.Minimized)return;await Refresh();if((DateTime.UtcNow-lastProbe).TotalSeconds>=30)await ProbeRoutes();};
    Window.ContentRendered+=async(s,e)=>{await Refresh();timer.Start();await ProbeRoutes();};
    Window.Closing+=(s,e)=>{if(busy){e.Cancel=true;Banner("操作仍在进行，请完成后再关闭窗口。","#FFF0D8");}};
    Window.Closed+=(s,e)=>{closed=true;timer.Stop();};
@@ -285,6 +291,7 @@ namespace LocalAIControl {
   }
   async Task ProbeRoutes(bool force=false) {
    if(probing||closed)return;probing=true;Button("ProbeButton").IsEnabled=false;Button("ProbeButton").Content="检测中…";
+   int targetPort=ConfiguredProbePort();Text("ProbeHint").Text=targetPort==0?"frps 端口配置无效 · 未进行 TCP 测速":"本机 → VPS · TCP "+targetPort+" / ICMP Ping";
    if(force)foreach(var route in routes)if(String.IsNullOrEmpty(route.CountryCode)&&String.IsNullOrEmpty(route.GeoCode))route.GeoCheckedAt=null;
    try {await Task.WhenAll(routes.ToList().Select(r=>ProbeOne(r)));if(!closed)SaveRoutes();}
    catch(Exception ex){if(!closed)History("检测结果保存失败："+ex.Message);}
@@ -319,13 +326,13 @@ namespace LocalAIControl {
    string address=Selected==null?null:Selected.Address;
    if(action=="Start"&&address==null)return;
    busy=true;actionError="";UpdateButtons();Control<ProgressBar>("Progress").Visibility=Visibility.Visible;
-   Banner(action=="Start"?"正在准备所选线路与服务，请稍候…":action=="Stop"?"正在停止本项目隧道…":"正在打开 Cherry Studio…","#E5EDFA");History("开始操作："+action);
+   Banner(action=="Start"?"正在准备所选线路与服务，请稍候…":action=="Stop"?"正在停止本项目隧道…":action=="StopOllama"?"正在停止已确认归属的模型监听…":"正在打开 Cherry Studio…","#E5EDFA");History("开始操作："+action);
    try {
     var result=await Request(action,address);
     if(D(result,"Status")!=null)Apply(D(result,"Status"));
     string message=S(result,"Message");History(message);
     if(!B(result,"Success")){actionError=message;Banner(message,"#FCE8E8");}
-    else if(action=="Stop")Banner(message,"#E5EDFA");
+    else if(action=="Stop"||action=="StopOllama")Banner(message,"#E5EDFA");
    }catch(Exception ex){actionError=ex.Message;Banner(actionError,"#FCE8E8");History(actionError);}
    finally{busy=false;Control<ProgressBar>("Progress").Visibility=Visibility.Collapsed;UpdateButtons();}
   }
@@ -334,11 +341,12 @@ namespace LocalAIControl {
    bool online=B(value,"OllamaOnline"),ts=B(value,"TailscaleConnected");var tunnel=D(value,"Tunnel");
    bool ready=S(tunnel,"State")=="ready";int count=Convert.ToInt32(value["FrpcCount"]);
    Text("OllamaState").Text=online?"在线":"未启动";Text("OllamaState").Foreground=Brush(online?green:gray);
-   Text("OllamaDetail").Text=online&&!B(value,"ModelInstalled")?"API 在线 · 默认模型尚未安装":"127.0.0.1:11434";
+   object reported;int reportedPort=value.TryGetValue("OllamaPort",out reported)?Convert.ToInt32(reported):ModelPort;
+   Text("OllamaDetail").Text="127.0.0.1:"+reportedPort+(online&&!B(value,"ModelInstalled")?" · 默认模型未安装":"");
    Text("TunnelState").Text=S(tunnel,"Text");Text("TunnelState").Foreground=Brush(ready?green:count>0?amber:gray);Text("TunnelDetail").Text=S(tunnel,"Detail");
-   Text("TsState").Text=ts?"已连接":"未连接";Text("TsState").Foreground=Brush(ts?green:gray);Text("TsDetail").Text=ts?S(value,"TailscaleIP")+":11434 · 辅助连接":"可选辅助连接 · frp 可以独立工作";
+   Text("TsState").Text=ts?"已连接":"未连接";Text("TsState").Foreground=Brush(ts?green:gray);Text("TsDetail").Text=ts?S(value,"TailscaleIP")+" · 仅网络状态":"可选辅助连接 · frp 可以独立工作";
    var current=routes.FirstOrDefault(r=>SameAddress(r.Address,S(value,"Server")));Text("CurrentRoute").Text="已保存："+(current==null?S(value,"Server"):current.Name);
-   Text("ModelText").Text="项目默认模型  "+S(value,"Model");Text("CheckedAt").Text="最近检查 "+DateTime.Now.ToString("HH:mm:ss")+" · 每 6 秒自动刷新";
+   Text("ModelText").Text="项目默认模型  "+S(value,"Model");Text("CheckedAt").Text="最近检查 "+DateTime.Now.ToString("HH:mm:ss")+" · 15 秒刷新 · 关窗保留服务";
    if(!routeInitialized){routeInitialized=true;List.SelectedItem=current??routes.FirstOrDefault();}
    Text("HeaderState").Text=online&&ready?(B(value,"ModelInstalled")?"模型与隧道已就绪":"服务在线 · 默认模型未安装"):online?(count>0?"Ollama 在线 · 隧道待就绪":"Ollama 在线 · 隧道未启动"):ready?"隧道已注册 · Ollama 离线":count>0?"隧道连接中 · Ollama 离线":"等待启动";
    UpdateStatusBanner();
@@ -359,13 +367,15 @@ namespace LocalAIControl {
    else Banner("选择一条线路，点击“一键启动”，自动准备 Ollama 与 frp 隧道。"+(online&&!installed?"Ollama API 在线，但默认模型尚未安装。":""),"#E5EDFA");
   }
   void UpdateButtons() {
-   foreach(string name in new[]{"StartButton","StopButton","CherryButton","RefreshButton","AddRouteButton","EditRouteButton","DeleteRouteButton"})Button(name).IsEnabled=!busy;
+   foreach(string name in new[]{"StartButton","StopButton","CherryButton","RefreshButton","AddRouteButton","EditRouteButton","DeleteRouteButton","StopOllamaButton","SettingsButton","WebButton"})Button(name).IsEnabled=!busy;
    List.IsEnabled=!busy;Button("StartButton").IsEnabled=!busy&&state!=null&&Selected!=null;
    Button("StopButton").IsEnabled=!busy&&state!=null&&Convert.ToInt32(state["FrpcCount"])>0;
+   Button("StopOllamaButton").IsEnabled=!busy&&state!=null&&B(state,"OllamaCanStop");
+   Button("StopOllamaButton").ToolTip=state==null?"正在确认模型监听归属":S(state,"OllamaStopReason");
    Button("RefreshButton").IsEnabled=!busy&&!checking;Button("EditRouteButton").IsEnabled=!busy&&Selected!=null;Button("DeleteRouteButton").IsEnabled=!busy&&Selected!=null;
-   if(Selected==null)Button("StartButton").Content="请先添加 / 选择线路";
-   else if(state!=null&&!SameAddress(Selected.Address,S(state,"Server")))Button("StartButton").Content="应用并启动所选线路";
-   else if(state!=null&&B(state,"OllamaOnline")&&Convert.ToInt32(state["FrpcCount"])>0)Button("StartButton").Content="检查并保持运行";
+   if(Selected==null)Button("StartButton").Content="先选择线路";
+   else if(state!=null&&!SameAddress(Selected.Address,S(state,"Server")))Button("StartButton").Content="应用并启动";
+   else if(state!=null&&B(state,"OllamaOnline")&&Convert.ToInt32(state["FrpcCount"])>0)Button("StartButton").Content="检查运行";
    else Button("StartButton").Content="一键启动";
   }
   void Banner(string text,string color){Text("BannerText").Text=text;Control<Border>("Banner").Background=Brush(color);}

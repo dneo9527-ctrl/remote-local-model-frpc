@@ -1,3 +1,6 @@
 {
-  "allowExternalMetadata": false
+  "allowExternalMetadata": false,
+  "ollamaPort": 11434,
+  "visitorPort": 11436,
+  "webChatUrl": ""
 }

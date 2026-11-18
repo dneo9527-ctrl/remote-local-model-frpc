@@ -45,3 +45,6 @@ __pycache__/
 **/ag-*/
 *handoff*.json
 **/updates/
+
+# Visitor exports contain private STCP connection keys
+**/exports/

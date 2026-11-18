@@ -12,15 +12,31 @@ $frpcConfig = Join-Path $projectRoot 'config\frpc.toml'
 $frpcLog = Join-Path $projectRoot 'logs\frpc.log'
 $tailscaleExe = Join-Path $env:ProgramFiles 'Tailscale\tailscale.exe'
 $modelName = ''
+$script:ollamaPort = 11434
 $mutex = $null
 $ownsMutex = $false
 $exitCode = 0
 # This helper is STCP-only. It does not reconfigure shared Ollama, Tailscale or firewall rules.
 
+function Get-ConfiguredOllamaPort {
+    $path = Join-Path $projectRoot 'config\panel-preferences.json'
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return 11434 }
+    $raw = [IO.File]::ReadAllText($path, [Text.Encoding]::UTF8)
+    if (-not $raw.TrimStart().StartsWith('{')) { throw 'panel-preferences.json 格式不正确，请检查设置。' }
+    $preferences = $raw | ConvertFrom-Json
+    if ($null -eq $preferences -or $preferences.GetType().FullName -ne 'System.Management.Automation.PSCustomObject') { throw 'panel-preferences.json 格式不正确，请检查设置。' }
+    if ($preferences.PSObject.Properties.Name -notcontains 'ollamaPort') { return 11434 }
+    $port = 0
+    if (-not [int]::TryParse([string]$preferences.ollamaPort, [ref]$port) -or $port -lt 1 -or $port -gt 65535) {
+        throw 'Ollama 端口必须是 1–65535 之间的整数，请检查设置。'
+    }
+    return $port
+}
+
 function Get-OllamaTags {
     $response = $null; $reader = $null
     try {
-        $request = [Net.HttpWebRequest]::Create('http://127.0.0.1:11434/api/tags')
+        $request = [Net.HttpWebRequest]::Create(('http://127.0.0.1:' + $script:ollamaPort + '/api/tags'))
         $request.Proxy = $null; $request.Timeout = 3000; $request.ReadWriteTimeout = 3000
         $response = $request.GetResponse(); $reader = [IO.StreamReader]::new($response.GetResponseStream())
         return ($reader.ReadToEnd() | ConvertFrom-Json)
@@ -56,14 +72,15 @@ function Get-ManagedFrpc {
 }
 
 function Ensure-LocalOllama {
+    $script:ollamaPort = Get-ConfiguredOllamaPort
     $tags = Get-OllamaTags
     if ($tags) { return $tags } # Reuse any already healthy shared Ollama without restarting it.
-    $listeners = @(Get-NetTCPConnection -LocalPort 11434 -State Listen -ErrorAction SilentlyContinue)
-    if ($listeners.Count -gt 0) { throw '11434 已有监听但 Ollama API 不可用；请检查现有服务，本次未停止或重配它。' }
+    $listeners = @(Get-NetTCPConnection -LocalPort $script:ollamaPort -State Listen -ErrorAction SilentlyContinue)
+    if ($listeners.Count -gt 0) { throw ('端口 ' + $script:ollamaPort + ' 已有监听但 Ollama API 不可用；请检查现有服务，本次未停止或重配它。') }
     if (-not (Test-Path -LiteralPath $ollamaExe -PathType Leaf)) { throw '未找到 Ollama，请先安装或启动已有 Ollama。' }
     $previous = [Environment]::GetEnvironmentVariable('OLLAMA_HOST', 'Process')
     try {
-        $env:OLLAMA_HOST = '127.0.0.1:11434'
+        $env:OLLAMA_HOST = '127.0.0.1:' + $script:ollamaPort
         Start-Process -FilePath $ollamaExe -ArgumentList 'serve' -WorkingDirectory $ollamaRoot -WindowStyle Hidden | Out-Null
     } finally { [Environment]::SetEnvironmentVariable('OLLAMA_HOST', $previous, 'Process') }
     for ($attempt = 0; $attempt -lt 30; $attempt++) {
@@ -115,10 +132,12 @@ function Show-Status {
 if ($LibraryOnly) { return }
 
 try {
+    if (Test-Path -LiteralPath (Join-Path $projectRoot 'config\.panel-port-change.pending.json')) { throw '端口保存尚未完成，请打开面板设置恢复后再启动。' }
     try { $Host.UI.RawUI.WindowTitle = '本地模型 | frp STCP' } catch {}
     $modelSettings = Get-Content -LiteralPath (Join-Path $projectRoot 'config\model-settings.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     $modelName = [string]$modelSettings.defaultModel
     if (-not $modelName) { throw 'config/model-settings.json 缺少 defaultModel，请选择已有模型。' }
+    $script:ollamaPort = Get-ConfiguredOllamaPort
     if ($StatusOnly) { Show-Status; return }
     $mutex = [Threading.Mutex]::new($false, ('Local\Qwen3HybridStart-' + $env:USERNAME))
     try { $ownsMutex = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $ownsMutex = $true }
@@ -148,7 +167,7 @@ try {
     } elseif (-not $NoChat) {
         Write-Host '进入本地对话；输入 /bye 退出。退出后 Ollama 与 frp 继续在后台运行。' -ForegroundColor DarkGray
         $previous = [Environment]::GetEnvironmentVariable('OLLAMA_HOST', 'Process')
-        try { $env:OLLAMA_HOST = '127.0.0.1:11434'; & $ollamaExe run $modelName }
+        try { $env:OLLAMA_HOST = '127.0.0.1:' + $script:ollamaPort; & $ollamaExe run $modelName }
         finally { [Environment]::SetEnvironmentVariable('OLLAMA_HOST', $previous, 'Process') }
     }
 } catch {

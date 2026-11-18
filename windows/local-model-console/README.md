@@ -1,87 +1,60 @@
-# 本地模型控制台 / VPS 切换面板（Windows 1.0.2 整合预览）
+# 远程模型控制台 · Windows 1.1.0 预览
 
-这是 Windows 电脑当前使用的原生面板源码：**C# / WPF 界面 + PowerShell 5.1 后端**，不是 Sub2API 部署页。保留一键启动、停止本项目隧道、状态刷新、Cherry Studio 入口、线路增删改、Ping/TCP 延迟、国旗与位置、连接说明、日志入口。
+Windows 原生 C# / WPF 窗口与 PowerShell 5.1 后端。Windows 提供 Ollama，Mac、手机或另一台 Windows 通过自己的 frpc visitor 接收。保留已有模型、配置、线路管理、延迟检测、国旗位置和 Cherry Studio 入口；不依赖 Pinokio、Docker 或 Python。
 
-Mac 端可以直接阅读和编辑这些文件、整合功能与视觉设计；WPF 程序本身只在 Windows x64 运行。Mac 整合和更新器继续由 Mac 侧维护，见 [交接说明](MAC_HANDOFF.md)。
+## 使用
 
-## 源码入口
+1. 双击原项目的 `启动本地模型.bat`，右上角“一键启动”启动模型和当前线路。选中另一线路后，点右上角“应用”才切线。
+2. Ollama 与 frp 卡片各有独立停止按钮。停止隧道只影响本项目；停止模型会中断该 API 上的所有本机及远端问答，需确认并通过进程归属核验。托盘主管可能重新拉起 Ollama，本面板不会追杀新进程。Tailscale 仅显示系统状态。
+3. 每条线路右侧“复制配置”将该节点完整 visitor TOML 放到剪贴板，文本顶部标注线路名，直接粘贴到接收设备的配置编辑器。复制不会切线，也不生成文件。文本含连接密钥，请私下保管；不要上传 Git。复杂、动态凭据或非本项目 STCP 配置会拒绝复制。
+4. 底栏“设置”可修改下表字段。“连接信息”“日志与记录”打开可滚动的小窗口，Esc 关闭。
+5. “打开网页版”打开已配置聊天地址；未配置时仅识别本机共享控制台 18765 的 `/chat`，否则引导设置。Ollama API 根地址本身没有聊天页面。打开链接不表示网页服务已经可用。
 
-| 文件 | 用途 |
-| --- | --- |
-| `LocalAI-Control.cs` | 窗口逻辑、线路、测速、状态、进程间单实例 |
-| `LocalAI.UI.xaml` | 完整界面布局与样式 |
-| `LocalAI-GUI.ps1` | 服务/配置操作后端，及兼容启动入口 |
-| `build.ps1` / `app.manifest` / `flags/` | EXE 编译与内嵌资源（含本版安全启动辅助脚本） |
-| `scripts/start-services.ps1` | STCP 启动辅助：复用健康 Ollama，未运行时只启动回环监听，不改 Tailscale/防火墙 |
-| `启动本地模型.bat` | 原双击入口，优先使用 EXE |
-| `examples/` | 无真实地址、无凭据的配置示例 |
-| `check-*.ps1` | 配置、恢复、界面回归检查 |
+| 设置 | 默认 | 生效方式 |
+| --- | --- | --- |
+| 模型 API 端口 | 11434 | 同步 `panel-preferences.json` 的 `ollamaPort` 与 Ollama STCP `localPort`；点击启动后使用 |
+| frps 服务端口 | 7000（以当前配置为准） | 只修改顶层 `serverPort`；需与 VPS 及 visitor 一致 |
+| visitor 接收端口 | 11436 | 下一次复制使用，客户端填接收设备自己的回环地址 |
+| 网页聊天地址 | 空 | 可填已部署的 Open WebUI 或共享 `/chat` URL，保存后立即使用 |
 
-来源为已上传的 1.0.1；本候选组件版本 1.0.2，保留原生界面与配置路径，增加 STCP 默认安全启动和共享发布入口。来源电脑的运行中 EXE、配置和服务未被本次源码整合覆盖。
+修改模型/frps 端口前，先停止本项目 frp，再保存设置并点击启动。不会自动停止旧模型端口上的服务；旧端口实例可能仍占资源，按需单独管理。远端需要重新复制匹配配置。端口冲突在启动时据实拒绝接管。端口保存会保留备份；发生中断时重新打开设置恢复，未知外部变化保留记录并阻止启动。
 
-## 构建与打开
+普通线路切换仍然**只改 `serverAddr`**，不改 token、secretKey 或端口。设置页的显式端口修改与切线是不同操作。三台 VPS 如端口不同，先按目标实际端口保存；本版没有为每个节点保存独立认证档案。
 
-Windows x64，需 Windows PowerShell 5.1 与 .NET Framework 4.8；使用系统自带 .NET Framework 编译器，不依赖 Pinokio、Python、Docker 或 npm。
+## 源码与构建
 
-在本目录的 Windows PowerShell 中执行：
+Windows x64、Windows PowerShell 5.1、.NET Framework 4.8。系统编译器直接构建，PS1 使用 UTF-8 BOM，C# 使用 UTF-8。
 
 ```powershell
-& .\build.ps1 -OutputDirectory 'D:\YourPrivateRuntime\console-build'
-& 'D:\YourPrivateRuntime\console-build\LocalAI-Control.exe' --project-root 'D:\YourExistingModelProject'
+& .\build.ps1 -OutputDirectory 'D:\PrivateRuntime\console-build'
+& 'D:\PrivateRuntime\console-build\LocalAI-Control.exe' --project-root 'D:\YourModelProject'
 ```
 
-将示例路径换成真实已有项目。已有项目至少需要：
+已有项目结构：
 
 ```text
-YourExistingModelProject/
-  config/frpc.toml                 # 自己的私有配置
-  config/model-settings.json       # 自己的模型名
-  scripts/start-services.ps1       # 本目录附的原辅助脚本
-  bin/frp/bridge.exe               # 官方 frpc.exe 的原项目文件名
+YourModelProject/
+  config/frpc.toml
+  config/model-settings.json
+  config/panel-preferences.json     # 可选，设置页保留未知字段
+  scripts/start-services.ps1
+  bin/frp/bridge.exe                # 官方 frpc，需支持 verify -c
   tools/control-panel/LocalAI-Control.exe
   启动本地模型.bat
 ```
 
-把编译好的 EXE 放进已有项目的 `tools/control-panel/`，BAT 放到项目根目录；双击 BAT 即可打开。**打开面板不等于点击启动，不会自动启动模型推理。** 日常使用保留自己的 `config`，不要用示例覆盖。
+`LocalAI-Control.cs` 管理主窗口；`LocalAI.UI.xaml` 是布局；`PanelWindows.cs` 管理设置/日志/连接弹窗与配置复制；`PanelConfig.cs` 保守修改端口；`PanelExport.cs` 生成 visitor；`LocalAI-GUI.ps1` 是服务后端。EXE 内嵌当前安全启动辅助，启动只复用健康模型，未监听时仅启动回环地址。已健康的旧监听不会被偷偷收紧或重启。关面板保留服务。
 
-全新项目请自行从 [Ollama](https://ollama.com/) 和 [frp 官方发行](https://github.com/fatedier/frp/releases) 安装适合本机的依赖，再按上述结构准备配置。示例地址不可连接；填入自己有权限的 frps 地址、token 与 STCP secretKey，远端 visitor 必须匹配。frpc 需支持 `verify -c`（原项目使用 0.72.0）。
+新项目先从 [Ollama](https://ollama.com/) 与 [frp 官方发行](https://github.com/fatedier/frp/releases) 安装依赖，再私下配置。`examples` 全为占位值，不可直接连接。位置来自手动标注/已有信息；外部 IP 地理库默认关闭。Tailscale 在线、Ping/TCP 成功均不能代替模型端到端问答验收。
 
-## 原行为与边界
+## 检查与交付
 
-- 切线只替换 `frpc.toml` 顶层 `serverAddr`；token、secretKey、serverPort、注释和换行保持；目标线路仍使用原有 serverPort。
-- 状态区分 Ollama API、默认模型是否安装、frpc 进程、隧道注册。TCP 可连不等于 STCP 认证或端到端问答成功。
-- “停止隧道”只处理能证实归属的项目 frpc；共享 Ollama/Tailscale 保留，关窗口后服务继续。
-- 新版启动只复用健康 Ollama；没有监听时以 `127.0.0.1:11434` 启动。已有监听但 API 异常时拒绝接管，不停止共享进程、不改防火墙或 Tailscale。原来已配置的远程监听若健康则保留，不能把复用说成已收紧现有监听。
-- 面板后端和内嵌启动辅助都要求确切 EXE 及单个绝对 `-c` 配置路径；不接管归属不明的相对路径进程。EXE 使用本版本内嵌辅助脚本，未调用既有项目中可能过时的启动脚本。
-- 原面板约每 6 秒创建后台 PowerShell 刷新状态，约每 30 秒测速；本次只补源码，不声称已完成低开销刷新改造。
-- 默认只使用内嵌/已有国旗与手动位置，**不**把 VPS IP 发往第三方地理库。如本人需要此功能，先了解会向 `ipwho.is` 发送线路解析 IP、向 `flagcdn.com` 请求国旗，再在私人 `config/panel-preferences.json` 明确写入 `{"allowExternalMetadata":true}` 并重开。位置不能保证真实机房。
-- `127.0.0.1` 始终指当前客户端设备，Mac/手机各自需要 visitor；模型端口和管理端口不能混用。
-- TCP 测速读取当前 `frpc.toml` 顶层 `serverPort`，仅省略该键时使用 frp 默认 7000；显式无效/重复值拒绝测速。当前线路仍只替换地址，不自动迁移不同节点的端口、token 或 secretKey。
-- `model-settings.json` 缺失或无效会给出受控错误，不创建/覆盖私人配置。
-
-## 检查
-
-在隔离目录执行以下检查，不会运行真实服务启停。UI 用例构造临时窗口但不显示正式窗口。
+仓库根目录运行：
 
 ```powershell
-& .\check-panel.ps1
-& .\check-switch-recovery.ps1
-& .\check-stcp-safety.ps1
-powershell.exe -NoProfile -STA -File .\check-ui-fixes.ps1
+powershell.exe -NoProfile -STA -File .\tests\windows\Verify-Console.ps1 -OutputDirectory 'D:\PanelChecks'
 ```
 
-可选真实 frpc **仅解析临时夹具**（不会启动隧道）：
+八组原生检查覆盖字节保留、文件冲突、恢复、进程归属、导出与隐藏 WPF。可为 `check-panel.ps1`、`check-export.ps1` 额外传 `-FrpcExecutable`，仅用官方 frpc 解析临时夹具，不连接服务器。具体结果见 [验证记录](VALIDATION.md)。Mac 可以编辑源码；WPF 本身只能在 Windows 运行，见 [Mac 交接](MAC_HANDOFF.md)。
 
-```powershell
-& .\check-panel.ps1 -FrpcExecutable 'D:\Tools\frpc.exe'
-```
-
-未传 frpc 时语义 TOML 类型检查明确 SKIP；其余字节保留、归属和日志夹具仍执行。真实项目只读状态检查需显式传 `-LiveProjectRoot`，默认不探测某台电脑的 Cherry Studio 或指定模型。
-
-PS1 保存为 UTF-8 BOM，供 Windows PowerShell 5.1 正确读取中文；C# 编译明确 `/codepage:65001`。检查会在源码旁创建 `fixtures/`、`switch-recovery-fixtures-*`、`ui-regression/`，均已加入忽略。真实执行结果与平台界限见 [验证记录](VALIDATION.md)。
-
-## 配置与发布
-
-本目录不含真实 TOML、visitor、模型权重、账号凭据、运行状态、历史日志或 EXE。`examples` 中所有密码均为显式占位符，不会自动生成可运行私人配置。不要把 `config/`、`state/`、`.gui-*.bak`、`.previous` 或日志提交 Git。
-
-“操作记录与日志”中新增“检查更新”，打开本仓库 Releases；它本身不下载或替换程序。共享源码更新器在选择并校验源码后，从该版本构建 EXE 到源码外的私人 runtime。关闭旧窗口再启动新版；不覆盖项目 config/data、模型权重或共享服务。未新增更新常驻服务。Windows 实机服务/多 VPS 切换仍需现场验收。
+发布包排除真实 config、data、state、模型、密钥、日志与 visitor。共享更新器从准确源码构建到源码外缓存；“检查更新”只打开仓库 Releases，不假装自动升级或签名已经通过。

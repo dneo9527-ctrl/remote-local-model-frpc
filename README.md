@@ -11,6 +11,8 @@ Mac 首页只保留连接开关、VPS 线路、Cherry Studio 和网页聊天；�
 | Windows Sub2API 扩展 | [windows/sub2api-local](windows/sub2api-local) | 独立 Docker/STCP 部署脚本，非本地模型推理服务 |
 | 双端更新 | [tools](tools) | 稳定/预览查询、校验下载、源码选择与回退；不覆盖配置或重启模型 |
 
+Sub2API 扩展已将 frpc 纳入同一 Docker 项目，整组启停；详见 [Windows 扩展](windows/sub2api-local/README.md)。
+
 ![Mac 核心界面](docs/screenshots/mac-core.jpg)
 
 ![Windows 原生 WPF 的 CI 离线预览，非用户电脑实拍](docs/screenshots/windows-ci-offline-preview.png)

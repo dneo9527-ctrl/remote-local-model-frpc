@@ -23,3 +23,13 @@ Windows 真实截图请从用户已连接的 UU 远程画面获取，保留真�
 ## 2026-11-18 整合候选
 
 本候选已将启动辅助改为默认 STCP 回环启动、共享 Ollama 复用、绝对进程归属；当前 EXE 内嵌安全辅助，不依赖原项目旧辅助。默认关闭 IP 地理库/国旗联网；测速采用真实 serverPort。新增同库 Releases 入口和外部 build 输出。原 6 秒刷新与只改 serverAddr 的线路模型仍保留；不同端口/密钥的完整 VPS 档案未在 Windows 实现，不能把 Mac 独立 visitor 档案能力当作 Windows 已完成。
+
+## 2026-11-18 Windows 1.1.0 接口与布局
+
+已实现固定右上启动、卡片独立停止、每线路 visitor 复制、紧凑客户端入口与底栏弹窗。状态轮询改为 15 秒，最小化/隐藏时跳过；线路探测仍约 30 秒。
+
+偏好字段：`ollamaPort`（默认11434）、`visitorPort`（默认11436）、`webChatUrl`（默认空），保留 `allowExternalMetadata` 和未知字段。模型端口同步 unique name=ollama/type=stcp 的 localPort，frps 端口为顶层 serverPort。切线仍只改 serverAddr。端口事务有备份、哈希日志与启动阻断；服务操作及保存使用同一 Windows Mutex。
+
+Mac 整合应保持相同设置含义，但用本机原有锁与进程适配器；Windows 设置页不远程改 VPS。visitor 复制不包含 Windows 本机路径，接收端 loopback 与端口为自己的地址。Windows 网页入口可配置；不会因按钮存在便安装/启动 WebUI。
+
+此前 6 秒轮询及只读端口的描述属于旧版。新增功能的 Windows 隔离验收与本机只读窗口检查见 VALIDATION；未执行真实停模型、多 VPS 切线或 Mac 原生验收。

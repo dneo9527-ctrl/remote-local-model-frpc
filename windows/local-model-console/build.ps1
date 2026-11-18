@@ -23,6 +23,7 @@ $arguments=@('/nologo','/target:winexe','/platform:x64','/optimize+','/codepage:
 foreach($reference in $references){$arguments+=('/reference:'+$reference)}
 foreach($flag in Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'flags') -Filter '*.png' -File){$arguments+=('/resource:'+$flag.FullName+',LocalAI.Flag.'+$flag.Name)}
 $arguments+=(Join-Path $PSScriptRoot 'LocalAI-Control.cs')
+    foreach($extra in @('PanelConfig.cs','PanelExport.cs','PanelWindows.cs')){$arguments+=(Join-Path $PSScriptRoot $extra)}
 & $compiler @arguments
 if($LASTEXITCODE -ne 0){throw 'EXE 编译失败。'}
 Get-Item -LiteralPath (Join-Path $OutputDirectory 'LocalAI-Control.exe') | Select-Object FullName,Length
