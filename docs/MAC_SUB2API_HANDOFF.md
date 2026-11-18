@@ -6,6 +6,8 @@
 
 01:14:33 通过控制台手动“检查 API”再次验证，仍为 `ConnectionResetError`；当前页面已缓存该失败结果，本机 visitor 继续运行等待复用。
 
+01:15:38 用户回复“已启动 Sub2API 并确认注册”后复查，health 仍重置，新日志仍报告目标 listener 不存在。用户附图为 Windows 远程模型控制台，图中 frp 项目标记为 `ollama`，只能说明该模型 provider 已注册。Mac 实际私有配置与附图节点仅在本机比对：Mac 正连图中的 HHost、控制端口 7000，provider 目标是 `sub2api_ke`，原 TLS 与 STCP 加密开启。未公开节点地址或认证值，也未把 Ollama 注册当作 Sub2API 注册；Windows Docker provider 的当前日志仍需独立确认。
+
 已 fetch 并读取 Windows 当前 `6f38ba6acb49b8e1a45cb495004a17eeb34125f3`。Windows 模型面板与 `windows/sub2api-local` Docker 项目仍为独立入口；模型面板运行不能证明 Sub2API provider 已注册。当前报错表示所连接的 frps 上没有可用的同名 listener，仍需 Windows 核验当前运行状态与连接约定；不凭历史日志推断现在在线。
 
 给 Windows 接续方：从**原部署目录**启动 `Start-Sub2API.cmd`，检查 `sub2api-local` 四容器运行及原三个服务健康；确认 `sub2api-frpc` 最新启动日志包含登录成功和 `[sub2api_ke] start proxy success`。容器内目标保持 `sub2api:8080`，核对原 frps/端口/配套认证，但不要提交这些私有值。请将本轮实际时间、测试结果与提交 SHA 写入 Windows 分支的 `windows/sub2api-local/MAC_HANDOFF.md`。Mac 没有操作 Windows、改端口或重建服务，现有 visitor 保留等待复用。

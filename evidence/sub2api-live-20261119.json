@@ -11,6 +11,17 @@
   "visitor_listener": "running",
   "health": {"passed": false, "error_type": "ConnectionResetError"},
   "console_manual_health_recheck": {"checked_at": "2026-11-19T01:14:33+08:00", "passed": false, "error_type": "ConnectionResetError"},
+  "after_user_registration_confirmation": {
+    "checked_at": "2026-11-19T01:15:38+08:00",
+    "health_passed": false,
+    "error_type": "ConnectionResetError",
+    "same_new_missing_listener_error": true,
+    "user_screenshot_provider": "ollama",
+    "mac_frps_matches_screenshot_node_label": "HHost",
+    "control_port_matches": true,
+    "actual_sub2api_provider_target": "sub2api_ke",
+    "windows_docker_provider_current_state": "not independently observed"
+  },
   "correlated_frpc_error": "custom listener for [sub2api_ke] doesn't exist",
   "key_authentication": "not tested; health failed",
   "models": "not tested; health failed",
