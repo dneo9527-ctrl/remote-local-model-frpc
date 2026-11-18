@@ -61,6 +61,27 @@ namespace LocalAIControl {
    finally{if(File.Exists(temp))File.Delete(temp);}
   }
  }
+ public static class ModelChoice {
+  public static bool Valid(string name){return !String.IsNullOrWhiteSpace(name)&&name.Length<=512&&name.Trim()==name&&!name.Any(Char.IsControl)&&!name.Any(Char.IsWhiteSpace);}
+  public static string[] Available(Dictionary<string,object> status){
+   object raw;if(status==null||!status.TryGetValue("Models",out raw)||raw is string)return new string[0];
+   var list=raw as System.Collections.IEnumerable;if(list==null)return new string[0];
+   var names=new HashSet<string>(StringComparer.Ordinal);foreach(object item in list){var name=item as string;if(Valid(name))names.Add(name);}
+   return names.OrderBy(x=>x,StringComparer.OrdinalIgnoreCase).ToArray();
+  }
+  public static string Current(byte[] bytes){var values=PanelPreferences.ReadSnapshot(bytes);object raw;return values.TryGetValue("defaultModel",out raw)&&raw is string?(string)raw:"";}
+  public static string Resolve(string name,IEnumerable<string> installed){
+   if(!Valid(name)||installed==null)return null;if(installed.Contains(name,StringComparer.Ordinal))return name;
+   return name.LastIndexOf(':')<=name.LastIndexOf('/')&&installed.Contains(name+":latest",StringComparer.Ordinal)?name+":latest":null;
+  }
+  public static void Save(string path,byte[] expected,string name,IEnumerable<string> installed){
+   if(expected==null)throw new IOException("模型设置文件缺失，未创建或覆盖；请先恢复项目设置。");
+   if(!Valid(name)||installed==null||!installed.Contains(name,StringComparer.Ordinal))throw new InvalidOperationException("所选模型不在当前已安装列表，请刷新后重新选择。");
+   var values=PanelPreferences.ReadSnapshot(expected);object old;
+   if(values.TryGetValue("defaultModel",out old)&&old is string&&(string)old==name){if(!PanelPreferences.Same(expected,PanelPreferences.Bytes(path)))throw new IOException("模型设置已被修改，请重新打开。");return;}
+   values["defaultModel"]=name;PanelPreferences.Write(path,expected,new UTF8Encoding(false).GetBytes(new JavaScriptSerializer().Serialize(values)),path+".previous");
+  }
+ }
  public sealed partial class Panel {
   bool openingWeb;
   int ModelPort {get{return PanelPreferences.Port(PanelPreferences.Read(Path.Combine(root,"config","panel-preferences.json")),"ollamaPort",11434);}}
@@ -106,7 +127,44 @@ namespace LocalAIControl {
     Process.Start(new ProcessStartInfo(url){UseShellExecute=true});History("已请求打开配置的网页版。页面是否可用以浏览器实际连接为准。");
    }catch(Exception ex){Banner(ex.Message,"#FFF0D8");}finally{openingWeb=false;if(!closed)Button("WebButton").IsEnabled=!busy;}
   }
-  void SettingsWindow(string notice="") {
+  void TailscaleWindow() {
+   if(busy)return;var dialog=SmallWindow("Tailscale · 连接信息",350);var body=new StackPanel{Margin=new Thickness(24)};
+   string ip=state==null?"":S(state,"TailscaleIP");body.Children.Add(Paragraph(String.IsNullOrEmpty(ip)?"当前没有可读取的 Tailscale IPv4 地址。":"本机 Tailscale IP："+ip,true));
+   body.Children.Add(Paragraph("IP 由 Tailscale 分配，连接与账号由系统 Tailscale 客户端管理。此处显示网络状态；模型是否能经此地址访问，还取决于模型监听与网络配置。"));
+   var copy=SmallButton("复制 IP");copy.IsEnabled=!String.IsNullOrEmpty(ip);copy.Click+=(s,e)=>{try{Clipboard.SetText(ip);copy.Content="已复制";}catch{copy.Content="剪贴板暂不可用";}};body.Children.Add(copy);
+   dialog.Content=new ScrollViewer{Content=body,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};dialog.ShowDialog();
+  }
+  void ModelWindow() {
+   if(busy)return;string path=Path.Combine(root,"config","model-settings.json");byte[] snapshot;string current;
+   try{snapshot=PanelPreferences.Bytes(path);if(snapshot==null)throw new IOException();current=ModelChoice.Current(snapshot);}catch{Banner("模型设置无法读取，原文件已保留；请检查 model-settings.json。","#FFF0D8");return;}
+   var dialog=SmallWindow("选择项目默认模型",345);var content=new StackPanel{Margin=new Thickness(24)};
+   content.Children.Add(Paragraph("默认模型",true));content.Children.Add(Paragraph("只修改本项目的默认选择。不会下载或加载模型，也不会停止当前问答；聊天客户端仍使用自己选定的模型。"));
+   var currentText=Paragraph("当前："+(String.IsNullOrEmpty(current)?"尚未设置":current));content.Children.Add(currentText);
+   var list=new ComboBox{MinHeight=36,Margin=new Thickness(0,0,0,14),IsEditable=false,MaxDropDownHeight=220};System.Windows.Automation.AutomationProperties.SetName(list,"本机已安装模型");content.Children.Add(list);
+   var status=Paragraph("正在读取已安装模型…");content.Children.Add(status);var row=new StackPanel{Orientation=Orientation.Horizontal};var refresh=SmallButton("刷新列表");var save=SmallButton("保存默认模型");save.Background=Brush("#3677F6");save.BorderBrush=Brush("#3677F6");save.Foreground=Brushes.White;save.IsEnabled=false;var close=SmallButton("取消");row.Children.Add(refresh);row.Children.Add(save);row.Children.Add(close);content.Children.Add(row);
+   bool loading=false,dialogClosed=false,saving=false;int catalogPort=0;string[] installed=new string[0];
+   Func<Task> load=async()=>{
+    if(loading||saving||dialogClosed)return;loading=true;save.IsEnabled=false;refresh.IsEnabled=false;list.IsEnabled=false;
+    try{int port=ModelPort;var result=await Request("Status",null);if(dialogClosed)return;var actual=D(result,"Status");
+     if(!B(result,"Success")||actual==null||!B(actual,"OllamaOnline"))throw new IOException("无法读取已安装列表。请先启动模型服务再刷新；若端口有误，关闭此窗后从 Ollama 卡片修改端口。");
+     if(Convert.ToInt32(actual["OllamaPort"])!=port||ModelPort!=port)throw new IOException("模型端口已变化，请重新打开模型选择。");
+     installed=ModelChoice.Available(actual);catalogPort=port;string selected=list.SelectedItem as string,matched=ModelChoice.Resolve(current,installed);list.ItemsSource=installed;list.SelectedItem=installed.Contains(selected)?selected:matched;
+     status.Text=installed.Length==0?"服务在线，当前没有已安装模型。请在模型工具中安装后刷新。":installed.Length+" 个已安装模型 · API 127.0.0.1:"+port+(matched!=null?"":"。当前默认模型未安装，请选择一个。");
+    }catch(Exception ex){installed=new string[0];list.ItemsSource=installed;status.Text=ex.Message;}finally{loading=false;if(!dialogClosed){refresh.IsEnabled=true;list.IsEnabled=true;save.IsEnabled=installed.Length>0&&list.SelectedItem!=null;}}
+   };
+   refresh.Click+=async(s,e)=>await load();list.SelectionChanged+=(s,e)=>{if(!loading&&!saving)save.IsEnabled=list.SelectedItem!=null&&installed.Length>0;};close.Click+=(s,e)=>dialog.Close();
+   save.Click+=async(s,e)=>{
+    if(loading||saving)return;string selected=list.SelectedItem as string;if(selected==null)return;IDisposable operation=null;
+    try{saving=true;busy=true;UpdateButtons();save.IsEnabled=false;refresh.IsEnabled=false;list.IsEnabled=false;close.IsEnabled=false;operation=new PanelOperationLock();
+     if(ModelPort!=catalogPort)throw new IOException("模型端口已变化，请重新打开模型选择。");
+     var result=await Request("Status",null);var actual=D(result,"Status");if(!B(result,"Success")||actual==null||!B(actual,"OllamaOnline")||Convert.ToInt32(actual["OllamaPort"])!=catalogPort||ModelPort!=catalogPort)throw new IOException("未能重新确认当前模型列表，设置未保存。请刷新后重试。");
+     ModelChoice.Save(path,snapshot,selected,ModelChoice.Available(actual));History("项目默认模型已设为 "+selected+"；未发起推理。");actionError="";busy=false;saving=false;dialog.Close();
+    }catch(Exception ex){if(!dialogClosed)status.Text=ex.Message;}finally{if(operation!=null)operation.Dispose();busy=false;saving=false;UpdateButtons();if(!dialogClosed){save.IsEnabled=list.SelectedItem!=null;refresh.IsEnabled=true;list.IsEnabled=true;close.IsEnabled=true;}}
+    if(dialogClosed&&!closed)await Refresh();
+   };
+   dialog.Closing+=(s,e)=>{if(saving)e.Cancel=true;};dialog.Closed+=(s,e)=>dialogClosed=true;dialog.Content=new ScrollViewer{Content=content,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};dialog.ContentRendered+=async(s,e)=>await load();dialog.ShowDialog();
+  }
+  void SettingsWindow(string notice="",string focus="") {
    if(busy)return;
    string prefPath=Path.Combine(root,"config","panel-preferences.json"),configPath=Path.Combine(root,"config","frpc.toml");
    Dictionary<string,object> values;byte[] originalPref,originalConfig;int[] ports;int initialModel,initialVisitor;
@@ -144,6 +202,7 @@ namespace LocalAIControl {
     }finally{if(operation!=null)operation.Dispose();busy=false;save.IsEnabled=true;close.IsEnabled=true;UpdateButtons();}
     if(committed&&!closed)await Refresh();
    };
+   dialog.ContentRendered+=(s,e)=>{if(focus=="model"){model.Focus();model.SelectAll();}else if(focus=="frps"){frps.Focus();frps.SelectAll();}};
    dialog.Closing+=(s,e)=>{if(busy)e.Cancel=true;};dialog.Content=new ScrollViewer{Content=content,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};dialog.ShowDialog();
   }
  }

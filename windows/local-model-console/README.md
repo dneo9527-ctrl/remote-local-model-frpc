@@ -1,4 +1,4 @@
-# 远程模型控制台 · Windows 1.1.0 预览
+# 远程模型控制台 · Windows 1.1.1 预览
 
 Windows 原生 C# / WPF 窗口与 PowerShell 5.1 后端。Windows 提供 Ollama，Mac、手机或另一台 Windows 通过自己的 frpc visitor 接收。保留已有模型、配置、线路管理、延迟检测、国旗位置和 Cherry Studio 入口；不依赖 Pinokio、Docker 或 Python。
 
@@ -8,7 +8,9 @@ Windows 原生 C# / WPF 窗口与 PowerShell 5.1 后端。Windows 提供 Ollama�
 2. Ollama 与 frp 卡片各有独立停止按钮。停止隧道只影响本项目；停止模型会中断该 API 上的所有本机及远端问答，需确认并通过进程归属核验。托盘主管可能重新拉起 Ollama，本面板不会追杀新进程。Tailscale 仅显示系统状态。
 3. 每条线路右侧“复制配置”将该节点完整 visitor TOML 放到剪贴板，文本顶部标注线路名，直接粘贴到接收设备的配置编辑器。复制不会切线，也不生成文件。文本含连接密钥，请私下保管；不要上传 Git。复杂、动态凭据或非本项目 STCP 配置会拒绝复制。
 4. 底栏“设置”可修改下表字段。“连接信息”“日志与记录”打开可滚动的小窗口，Esc 关闭。
-5. “打开网页版”打开已配置聊天地址；未配置时仅识别本机共享控制台 18765 的 `/chat`，否则引导设置。Ollama API 根地址本身没有聊天页面。打开链接不表示网页服务已经可用。
+5. 点击右下“默认模型 ▾”，从当前模型服务的已安装列表选择并保存。保存前重新确认模型存在，只更新项目 defaultModel，保留上下文档案、硬件与厂商等其他字段；不会下载、加载、卸载或重启模型。Cherry / Mac / 手机客户端仍使用自己请求中选择的模型。API 离线时先修正端口/启动，再刷新；不把离线误报为模型清空。
+6. Ollama/frp 卡片的下方信息可以点击，直接进入端口设置并聚焦对应字段；Tailscale 下方信息打开只读说明与复制 IP。IP 由 Tailscale 分配，在系统客户端管理。
+7. “打开网页版”打开已配置聊天地址；未配置时仅识别本机共享控制台 18765 的 `/chat`，否则引导设置。Ollama API 根地址本身没有聊天页面。打开链接不表示网页服务已经可用。
 
 | 设置 | 默认 | 生效方式 |
 | --- | --- | --- |
@@ -55,6 +57,6 @@ YourModelProject/
 powershell.exe -NoProfile -STA -File .\tests\windows\Verify-Console.ps1 -OutputDirectory 'D:\PanelChecks'
 ```
 
-八组原生检查覆盖字节保留、文件冲突、恢复、进程归属、导出与隐藏 WPF。可为 `check-panel.ps1`、`check-export.ps1` 额外传 `-FrpcExecutable`，仅用官方 frpc 解析临时夹具，不连接服务器。具体结果见 [验证记录](VALIDATION.md)。Mac 可以编辑源码；WPF 本身只能在 Windows 运行，见 [Mac 交接](MAC_HANDOFF.md)。
+九组原生检查覆盖字节保留、文件冲突、恢复、进程归属、导出与隐藏 WPF。可为 `check-panel.ps1`、`check-export.ps1` 额外传 `-FrpcExecutable`，仅用官方 frpc 解析临时夹具，不连接服务器。具体结果见 [验证记录](VALIDATION.md)。Mac 可以编辑源码；WPF 本身只能在 Windows 运行，见 [Mac 交接](MAC_HANDOFF.md)。
 
 发布包排除真实 config、data、state、模型、密钥、日志与 visitor。共享更新器从准确源码构建到源码外缓存；“检查更新”只打开仓库 Releases，不假装自动升级或签名已经通过。

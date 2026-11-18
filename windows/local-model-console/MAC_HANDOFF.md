@@ -33,3 +33,9 @@ Windows 真实截图请从用户已连接的 UU 远程画面获取，保留真�
 Mac 整合应保持相同设置含义，但用本机原有锁与进程适配器；Windows 设置页不远程改 VPS。visitor 复制不包含 Windows 本机路径，接收端 loopback 与端口为自己的地址。Windows 网页入口可配置；不会因按钮存在便安装/启动 WebUI。
 
 此前 6 秒轮询及只读端口的描述属于旧版。新增功能的 Windows 隔离验收与本机只读窗口检查见 VALIDATION；未执行真实停模型、多 VPS 切线或 Mac 原生验收。
+
+## 2026-11-19 · 1.1.1 模型与卡片入口
+
+默认模型标签可点开已安装模型下拉，Status 新增 Models 名称数组，使用当前 OllamaPort 的 /api/tags。保存前重新读取本端口模型列表，精确验证名字，原子更新 model-settings.json.defaultModel，保留 profiles/context/hardware/providers/未知字段并备份。当前简写默认值可匹配同名 :latest 标签，不忽略名字大小写。没有已安装的当前项时需用户主动选择，不擅自预选另一个。离线/空列表不改配置；保存不触发推理、下载或更改客户端的请求模型。
+
+Ollama/frp 详情点击共用原设置窗，分别聚焦模型/frps端口；Tailscale 详情为只读信息与复制IP。两端整合请保留这些操作语义，不能将网络状态当成模型已可通过 Tailscale 访问。新增 check-model-choice 覆盖未知字段保留、冲突拒绝、无效/缺失模型和 latest 兼容。

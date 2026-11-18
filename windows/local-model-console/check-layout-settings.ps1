@@ -64,7 +64,7 @@ try {
     $cardGrid=@(Find-Logical $layout ([Windows.Controls.Primitives.UniformGrid]) | Where-Object {$_.Columns -eq 3})
     Check ($cardGrid.Count -eq 1) 'the three service cards remain one comparable group'
     Check ((Child-Of ($window.FindName('StopOllamaButton')) $cardGrid[0].Children[0]) -and (Child-Of ($window.FindName('StopButton')) $cardGrid[0].Children[1])) 'model and frp stop controls belong to their own cards'
-    $thirdButtons=@(Find-Logical $cardGrid[0].Children[2] ([Windows.Controls.Button]))
+    $thirdButtons=@(Find-Logical $cardGrid[0].Children[2] ([Windows.Controls.Button]) | Where-Object {$_.Name -ne 'TailscaleInfoButton'})
     Check ($thirdButtons.Count -eq 0) 'Tailscale card has no accidental global disconnect action'
     $footer=@($layout.Children | Where-Object {[Windows.Controls.Grid]::GetRow($_) -eq 2})
     Check ($footer.Count -eq 1 -and (Child-Of ($window.FindName('ConnectionButton')) $footer[0]) -and (Child-Of ($window.FindName('HistoryButton')) $footer[0]) -and (Child-Of ($window.FindName('SettingsButton')) $footer[0])) 'connection history and settings share the fixed footer'
@@ -93,6 +93,11 @@ try {
         }
     }
     Check $callsExport 'registered route click handler dispatches to ExportRoute without executing it'
+
+    Check ([object]::ReferenceEquals($window.FindName('ModelText').Parent,$window.FindName('ModelButton'))) 'default model text is inside its model selection button'
+    Check ($window.FindName('OllamaSettingsButton').ToolTip -eq '设置模型服务端口' -and $window.FindName('FrpSettingsButton').ToolTip -eq '设置隧道服务端口') 'service cards expose explicit port setting shortcuts'
+    Check ($window.FindName('TailscaleInfoButton').ToolTip -eq '查看 Tailscale 连接信息') 'Tailscale shortcut describes read-only connection information'
+
 
     # An owned WPF window needs its owner's HWND. EnsureHandle creates it hidden,
     # without Show/ContentRendered, so no automatic refresh or backend task runs.

@@ -305,6 +305,7 @@ function Get-LocalAiStatus {
     $tsConnected = $ts -and $ts.BackendState -eq 'Running'
     $tsIp = ''; if ($tsConnected) { $tsIp = @($ts.TailscaleIPs | Where-Object { $_ -notmatch ':' }) | Select-Object -First 1 }
     [pscustomobject]@{ CheckedAt = (Get-Date); Server = $config.Address; Model = $model; ModelInstalled = $installed;
+        Models = @($tags.models | Where-Object { $_.name -is [string] -and $_.name } | ForEach-Object { $_.name });
         OllamaOnline = $online; OllamaPort = $ollamaPort; OllamaCanStop = [bool]$ollamaControl.CanStop; OllamaStopReason = $ollamaControl.Reason;
         OllamaProcessId = $(if ($ollamaControl.Process) { $ollamaControl.Process.ProcessId } else { $null });
         Tunnel = $tunnel; FrpcCount = $processes.Count; TailscaleConnected = [bool]$tsConnected; TailscaleIP = $tsIp }

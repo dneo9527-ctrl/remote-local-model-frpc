@@ -71,6 +71,7 @@
   "windows/local-model-console/build.ps1",
   "windows/local-model-console/check-export.ps1",
   "windows/local-model-console/check-layout-settings.ps1",
+  "windows/local-model-console/check-model-choice.ps1",
   "windows/local-model-console/check-panel.ps1",
   "windows/local-model-console/check-service-controls.ps1",
   "windows/local-model-console/check-settings.ps1",

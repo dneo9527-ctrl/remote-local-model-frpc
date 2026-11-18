@@ -53,6 +53,7 @@ try {
     Invoke-IsolatedCheck -Name 'export' -Script (Join-Path $source 'check-export.ps1') -CountPattern 'EXPORT_CHECKS_PASSED=(\d+)' -MinimumCount 64
     Invoke-IsolatedCheck -Name 'service-controls' -Script (Join-Path $source 'check-service-controls.ps1') -CountPattern 'SERVICE_CONTROL_CHECKS_PASSED=(\d+)' -MinimumCount 33
     Invoke-IsolatedCheck -Name 'layout-settings' -Script (Join-Path $source 'check-layout-settings.ps1') -CountPattern 'LAYOUT_SETTINGS_CHECKS_PASSED=(\d+)' -MinimumCount 59
+    Invoke-IsolatedCheck -Name 'model-choice' -Script (Join-Path $source 'check-model-choice.ps1') -Arguments @('-Executable',(Join-Path $source 'LocalAI-Control.exe')) -CountPattern 'MODEL_CHOICE_CHECKS_PASSED=(\d+)' -MinimumCount 26
     Invoke-IsolatedCheck -Name 'offline-preview' -Script (Join-Path $PSScriptRoot 'Render-ConsolePreview.ps1') -Arguments @('-Executable',(Join-Path $source 'LocalAI-Control.exe'),'-OutputDirectory',$output)
     $success = $true
 } finally {

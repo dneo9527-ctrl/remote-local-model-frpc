@@ -1,12 +1,12 @@
 {
   "schema": 1,
   "project": "remote-local-model-frpc",
-  "version": "0.2.0-preview.2",
+  "version": "0.2.0-preview.3",
   "repository": "dneo9527-ctrl/remote-local-model-frpc",
   "channel": "preview",
   "components": {
     "mac-console": "0.2.0-preview.1",
     "windows-sub2api": "0.2.0-preview.1",
-    "windows-model-console": "1.1.0-preview.1"
+    "windows-model-console": "1.1.1-preview.1"
   }
 }

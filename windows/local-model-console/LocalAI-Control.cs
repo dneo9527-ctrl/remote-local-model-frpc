@@ -25,7 +25,7 @@ using System.Windows.Threading;
 
 [assembly: AssemblyTitle("Local AI Control")]
 [assembly: AssemblyProduct("远程模型控制台")]
-[assembly: AssemblyVersion("1.1.0.0")]
+[assembly: AssemblyVersion("1.1.1.0")]
 [assembly: System.Runtime.Versioning.TargetFramework(".NETFramework,Version=v4.8")]
 
 namespace LocalAIControl {
@@ -139,6 +139,10 @@ namespace LocalAIControl {
    Button("ConnectionButton").Click+=(s,e)=>{try{ConnectionWindow();}catch{Banner("连接偏好无法读取，请检查面板设置文件。","#FFF0D8");}};
    Button("HistoryButton").Click+=(s,e)=>HistoryWindow();
    Button("SettingsButton").Click+=(s,e)=>SettingsWindow();
+   Button("ModelButton").Click+=(s,e)=>ModelWindow();
+   Button("OllamaSettingsButton").Click+=(s,e)=>SettingsWindow("", "model");
+   Button("FrpSettingsButton").Click+=(s,e)=>SettingsWindow("", "frps");
+   Button("TailscaleInfoButton").Click+=(s,e)=>TailscaleWindow();
    Button("WebButton").Click+=async(s,e)=>await OpenWeb();
    List.AddHandler(System.Windows.Controls.Button.ClickEvent,new RoutedEventHandler((s,e)=>{var button=e.OriginalSource as Button;if(button!=null&&button.Tag is Route){e.Handled=true;ExportRoute((Route)button.Tag);}}));
    Button("CherryButton").Click+=async(s,e)=>await Action("Cherry");
@@ -346,7 +350,7 @@ namespace LocalAIControl {
    Text("TunnelState").Text=S(tunnel,"Text");Text("TunnelState").Foreground=Brush(ready?green:count>0?amber:gray);Text("TunnelDetail").Text=S(tunnel,"Detail");
    Text("TsState").Text=ts?"已连接":"未连接";Text("TsState").Foreground=Brush(ts?green:gray);Text("TsDetail").Text=ts?S(value,"TailscaleIP")+" · 仅网络状态":"可选辅助连接 · frp 可以独立工作";
    var current=routes.FirstOrDefault(r=>SameAddress(r.Address,S(value,"Server")));Text("CurrentRoute").Text="已保存："+(current==null?S(value,"Server"):current.Name);
-   Text("ModelText").Text="项目默认模型  "+S(value,"Model");Text("CheckedAt").Text="最近检查 "+DateTime.Now.ToString("HH:mm:ss")+" · 15 秒刷新 · 关窗保留服务";
+   Text("ModelText").Text="默认模型  "+S(value,"Model")+"  ▾";Text("CheckedAt").Text="最近检查 "+DateTime.Now.ToString("HH:mm:ss")+" · 15 秒刷新 · 关窗保留服务";
    if(!routeInitialized){routeInitialized=true;List.SelectedItem=current??routes.FirstOrDefault();}
    Text("HeaderState").Text=online&&ready?(B(value,"ModelInstalled")?"模型与隧道已就绪":"服务在线 · 默认模型未安装"):online?(count>0?"Ollama 在线 · 隧道待就绪":"Ollama 在线 · 隧道未启动"):ready?"隧道已注册 · Ollama 离线":count>0?"隧道连接中 · Ollama 离线":"等待启动";
    UpdateStatusBanner();
@@ -367,7 +371,7 @@ namespace LocalAIControl {
    else Banner("选择一条线路，点击“一键启动”，自动准备 Ollama 与 frp 隧道。"+(online&&!installed?"Ollama API 在线，但默认模型尚未安装。":""),"#E5EDFA");
   }
   void UpdateButtons() {
-   foreach(string name in new[]{"StartButton","StopButton","CherryButton","RefreshButton","AddRouteButton","EditRouteButton","DeleteRouteButton","StopOllamaButton","SettingsButton","WebButton"})Button(name).IsEnabled=!busy;
+   foreach(string name in new[]{"StartButton","StopButton","CherryButton","RefreshButton","AddRouteButton","EditRouteButton","DeleteRouteButton","StopOllamaButton","SettingsButton","WebButton","ModelButton","OllamaSettingsButton","FrpSettingsButton","TailscaleInfoButton"})Button(name).IsEnabled=!busy;
    List.IsEnabled=!busy;Button("StartButton").IsEnabled=!busy&&state!=null&&Selected!=null;
    Button("StopButton").IsEnabled=!busy&&state!=null&&Convert.ToInt32(state["FrpcCount"])>0;
    Button("StopOllamaButton").IsEnabled=!busy&&state!=null&&B(state,"OllamaCanStop");
