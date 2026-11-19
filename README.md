@@ -13,6 +13,8 @@ Mac 首页只保留连接开关、VPS 线路、Cherry Studio 和网页聊天；�
 
 Sub2API 扩展已将 frpc 纳入同一 Docker 项目，整组启停；详见 [Windows 扩展](windows/sub2api-local/README.md)。
 
+Windows 的模型面板、FRP 线路管理和 Sub2API 部署源码已统一收录；完整目录及私人数据边界见 [项目整理与交付](docs/项目整理与交付.md)。当前 Windows 面板为 1.1.2，包含一键启停、独立服务控制、线路名称、访客配置复制、模型选择和端口设置。
+
 ![Mac 核心界面](docs/screenshots/mac-core.jpg)
 
 ![Windows 原生 WPF 的 CI 离线预览，非用户电脑实拍](docs/screenshots/windows-ci-offline-preview.png)
