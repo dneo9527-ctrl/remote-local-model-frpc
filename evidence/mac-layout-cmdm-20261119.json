@@ -1,0 +1,35 @@
+{
+  "date": "2026-11-19",
+  "version": "0.2.0-preview.4",
+  "implementation_commit": "93c5a1f1ff4e4ed074247488d4702bad69268df9",
+  "change": "Compact aligned expanded-home layout and standard Command+M",
+  "layout": {
+    "light_compact_header": true,
+    "shared_grid_rows": "title, overview, health, actions, settings",
+    "large_auto_margins_removed": true,
+    "connection_settings_default_open": true,
+    "management_default_collapsed": true,
+    "original_control_ids_preserved_and_unique": true,
+    "chat_layout_and_javascript_unchanged": true,
+    "actual_native_window_visual_checked": true,
+    "new_narrow_view_visual_test": "unavailable: existing Chrome browser closed; no new browser page opened"
+  },
+  "shortcuts": {
+    "Command+W": "actually tested in40c4796",
+    "Command+M_actual_keypress": true,
+    "minimized_state_observed": true,
+    "same_window_and_process_restored": true,
+    "backend_and_single_visitor_preserved": true
+  },
+  "validation": {
+    "swift_compile_and_ad_hoc_signature_passed": true,
+    "independent_native_review_passed": true,
+    "private_connection_files_and_key_hashes_unchanged": true,
+    "codex_config": "hash changed concurrently after install; task did not write it and preserved current file",
+    "sub2api_visitor_restored": true,
+    "ollama_paused": true
+  },
+  "external_ai_dispatch": "none; exact-chat provider unconfigured and no AI page",
+  "remote_api_tests_this_ui_change": false,
+  "release_created": false
+}
