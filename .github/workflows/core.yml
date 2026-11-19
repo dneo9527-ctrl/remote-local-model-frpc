@@ -24,3 +24,22 @@ jobs:
       - name: Config preservation, process ownership and local HTTP isolation
         working-directory: mac/console
         run: python -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Type-check native Mac menu and retained WebKit pages
+        if: runner.os == 'macOS' && matrix.python == '3.12'
+        run: xcrun swiftc -swift-version 5 -typecheck mac/menu/LocalAIConsole.swift
+  panel-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated browser test runtime
+        run: |
+          npm install --prefix "$RUNNER_TEMP/panel-ui" --no-package-lock playwright@1.56.1
+          "$RUNNER_TEMP/panel-ui/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Exercise panel and chat against local API fixtures
+        env:
+          LOCAL_AI_PLAYWRIGHT: ${{ runner.temp }}/panel-ui/node_modules/playwright
+          LOCAL_AI_BROWSER: chromium
+        run: node mac/console/tests/panel-ui.cjs

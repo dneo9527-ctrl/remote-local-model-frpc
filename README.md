@@ -4,6 +4,10 @@
 
 Mac 首页提供模型连接、VPS 线路、Cherry Studio 和网页聊天；配置过 Sub2API 时显示独立连接卡片及 CC Switch 入口。原生 Mac App 提供菜单栏运行图标、可复用的应用窗口、⌘W 关闭、⌘M 最小化与全部退出。更新与日志折叠到管理入口。Codex 供应商和认证由 CC Switch 管理。
 
+Mac `0.2.0-preview.5` 增加手动分层诊断、带时间与失效提示的健康结果、线路待应用提示、分类脱敏日志和本机默认模型；原生窗口保留控制台与聊天两个视图，返回不会清空草稿或中断生成。诊断的认证与最小 Responses 请求分别由用户点击触发，不作为后台探测。
+
+两卡的“管理线路”支持多 VPS 方案新增、编辑、复制、删除和配套 visitor 导入；两条服务都来自 Windows，VPS 仅负责中转。保存后需明确应用，不自动切线，也不修改 CC Switch 或现有下游 Key。
+
 | 组件 | 源码 | 当前范围 |
 | --- | --- | --- |
 | Mac 接收端 | [mac/console](mac/console) | 原生 Ollama API、流式网页聊天、复用已有网关管理器 |
@@ -11,11 +15,17 @@ Mac 首页提供模型连接、VPS 线路、Cherry Studio 和网页聊天；配�
 | Windows Sub2API 扩展 | [windows/sub2api-local](windows/sub2api-local) | 独立 Docker/STCP 部署脚本，非本地模型推理服务 |
 | 双端更新 | [tools](tools) | 稳定/预览查询、校验下载、源码选择与回退；不覆盖配置或重启模型 |
 
+Sub2API 扩展已将 frpc 纳入同一 Docker 项目，整组启停；详见 [Windows 扩展](windows/sub2api-local/README.md)。
+
+Windows 的模型面板、FRP 线路管理和 Sub2API 部署源码已统一收录；完整目录及私人数据边界见 [项目整理与交付](docs/项目整理与交付.md)。当前 Windows 面板为 1.1.2，包含一键启停、独立服务控制、线路名称、访客配置复制、模型选择和端口设置。
+
 ![Mac 核心界面](docs/screenshots/mac-core.jpg)
 
 ![Windows 原生 WPF 的 CI 离线预览，非用户电脑实拍](docs/screenshots/windows-ci-offline-preview.png)
 
 [统一使用与维护](docs/统一使用与维护.md) · [操作步骤](docs/操作步骤.md) · [双端维护与更新](docs/维护与更新.md) · [验收状态](docs/验收.md) · [GitHub 发布](https://github.com/dneo9527-ctrl/remote-local-model-frpc/releases)
+
+后续 Windows 原面板的 Sub2API 卡片、独立节点档案与诊断整合任务见 [Windows 实施交接](docs/WINDOWS_PANEL_NEXT.md)。这是后续任务，当前 Windows 1.1.2 仍独立启动 Sub2API。
 
 Sub2API 独立扩展的 Mac 现场结果与待办见 [Mac Sub2API 交接](docs/MAC_SUB2API_HANDOFF.md)。该连接与已验收的 Ollama 连接分别管理。
 

@@ -24,8 +24,10 @@ class Fixture:
                         'remote': {'state': 'unchecked', 'detail': 'fixture'}},
         }
 
-    def status(self):
-        return copy.deepcopy(self.value)
+    def status(self, passive=False):
+        value = copy.deepcopy(self.value)
+        value.update(passive=bool(passive), active_chats=0)
+        return value
 
     def action(self, service, action):
         value = self.value['sub2api']

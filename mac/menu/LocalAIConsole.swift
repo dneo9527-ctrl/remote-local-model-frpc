@@ -16,6 +16,7 @@ struct MenuSettings: Decodable {
 struct LocalSession {
     let instance: String
     let csrf: String
+    let supportsPassiveStatus: Bool
 }
 
 enum ConsoleState {
@@ -59,14 +60,16 @@ func connectionMenuImage() -> NSImage {
     return image
 }
 
-// Keep one local console panel, including its current page and unsent text.
+// Keep both local pages alive in one panel, including streams and unsent text.
 // Closing the panel hides it; only All Quit stops the owned connections.
 final class ConsolePanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
     let baseURL: URL
     private(set) var window: NSWindow?
-    private var webView: WKWebView?
+    private var webViews: [String: WKWebView] = [:]
+    private var loadedPages: Set<String> = []
+    private var failedPages: Set<String> = []
+    private(set) var activePage = "/"
     private var instance: String?
-    private var loadFailed = false
     var visibilityChanged: (() -> Void)?
 
     init(baseURL: URL) { self.baseURL = baseURL }
@@ -78,11 +81,6 @@ final class ConsolePanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUI
 
     func show(instance current: String) {
         if window == nil {
-            let configuration = WKWebViewConfiguration()
-            configuration.websiteDataStore = .nonPersistent()
-            let view = WKWebView(frame: .zero, configuration: configuration)
-            view.navigationDelegate = self
-            view.uiDelegate = self
             let panel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 660),
                                  styleMask: [.titled, .closable, .miniaturizable, .resizable],
                                  backing: .buffered, defer: false)
@@ -90,23 +88,79 @@ final class ConsolePanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUI
             panel.minSize = NSSize(width: 560, height: 440)
             panel.isReleasedWhenClosed = false
             panel.collectionBehavior = [.moveToActiveSpace]
-            panel.contentView = view
+            panel.contentView = NSView()
             panel.delegate = self
             if !panel.setFrameUsingName("LocalAIConsolePanel") { panel.center() }
             panel.setFrameAutosaveName("LocalAIConsolePanel")
             window = panel
-            webView = view
         }
-        // A new backend needs a new CSRF session. Ordinary reopen keeps drafts.
-        if instance != current || loadFailed {
-            instance = current
-            loadFailed = false
-            webView?.load(URLRequest(url: baseURL))
-        }
+        updateInstance(current)
+        displayPage(activePage)
         if window?.isMiniaturized == true { window?.deminiaturize(nil) }
         NSApp.activate(ignoringOtherApps: true)
         window?.makeKeyAndOrderFront(nil)
         visibilityChanged?()
+    }
+
+    func updateInstance(_ current: String) {
+        // A backend change invalidates both CSRF sessions. Ordinary navigation,
+        // reopen and minimize never reload either already-loaded page.
+        guard window != nil, instance != current else { return }
+        instance = current
+        resetPages()
+        activePage = "/"
+        displayPage(activePage)
+    }
+
+    private func resetPages() {
+        for view in webViews.values {
+            view.navigationDelegate = nil
+            view.uiDelegate = nil
+            view.stopLoading()
+            view.removeFromSuperview()
+        }
+        webViews.removeAll()
+        loadedPages.removeAll()
+        failedPages.removeAll()
+        guard let container = window?.contentView else { return }
+        let store = WKWebsiteDataStore.nonPersistent()
+        for path in ["/", "/chat"] {
+            let configuration = WKWebViewConfiguration()
+            configuration.websiteDataStore = store
+            let view = WKWebView(frame: .zero, configuration: configuration)
+            view.navigationDelegate = self
+            view.uiDelegate = self
+            view.translatesAutoresizingMaskIntoConstraints = false
+            view.isHidden = true
+            container.addSubview(view)
+            NSLayoutConstraint.activate([
+                view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+                view.topAnchor.constraint(equalTo: container.topAnchor),
+                view.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            ])
+            webViews[path] = view
+        }
+    }
+
+    private func displayPage(_ path: String) {
+        guard let selected = webViews[path] else { return }
+        activePage = path
+        // Keep the other WKWebView attached: hiding a page must not cancel its
+        // fetch, stream reader, conversation state or textarea contents.
+        for (page, view) in webViews { view.isHidden = page != path }
+        if !loadedPages.contains(path) || failedPages.contains(path) {
+            loadedPages.insert(path)
+            failedPages.remove(path)
+            var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
+            components.path = path
+            selected.load(URLRequest(url: components.url!))
+        }
+        visibilityChanged?()
+    }
+
+    private func page(for view: WKWebView) -> String? {
+        webViews.first(where: { $0.value === view })?.key
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
@@ -122,9 +176,10 @@ final class ConsolePanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUI
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         guard let url = action.request.url else { decisionHandler(.cancel); return }
         if isLocalPage(url) {
-            if action.targetFrame == nil {
-                webView.load(action.request)
+            if action.navigationType == .linkActivated || action.targetFrame == nil ||
+                page(for: webView) != url.path {
                 decisionHandler(.cancel)
+                displayPage(url.path)
             } else { decisionHandler(.allow) }
         } else {
             // Only an explicit link click can leave the local panel.
@@ -141,15 +196,104 @@ final class ConsolePanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUI
         nil  // Local target=_blank links are handled above in the same panel.
     }
 
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { loadFailed = false }
+    func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,
+                 initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping ([URL]?) -> Void) {
+        let picker = NSOpenPanel()
+        picker.canChooseFiles = true
+        picker.canChooseDirectories = false
+        picker.allowsMultipleSelection = parameters.allowsMultipleSelection
+        let finished: (NSApplication.ModalResponse) -> Void = { result in
+            completionHandler(result == .OK ? picker.urls : nil)
+        }
+        if let window = window { picker.beginSheetModal(for: window, completionHandler: finished) }
+        else { picker.begin(completionHandler: finished) }
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        if let path = page(for: webView) { failedPages.remove(path) }
+    }
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
                  withError error: Error) {
-        if (error as NSError).code != NSURLErrorCancelled { loadFailed = true }
+        if (error as NSError).code != NSURLErrorCancelled, let path = page(for: webView) {
+            failedPages.insert(path)
+        }
     }
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        if (error as NSError).code != NSURLErrorCancelled { loadFailed = true }
+        if (error as NSError).code != NSURLErrorCancelled, let path = page(for: webView) {
+            failedPages.insert(path)
+        }
     }
-    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { loadFailed = true }
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        if let path = page(for: webView) { failedPages.insert(path) }
+    }
+}
+
+struct ConnectionSummary {
+    let ollama: String
+    let sub2api: String
+
+    static let unknown = ConnectionSummary(ollama: "Windows 模型：连接状态未知",
+                                            sub2api: "Sub2API：连接状态未知")
+
+    init(ollama: String, sub2api: String) {
+        self.ollama = ollama
+        self.sub2api = sub2api
+    }
+
+    init(status: [String: Any], now: Date = Date()) {
+        if let model = status["ollama"] as? [String: Any],
+           let running = model["running"] as? Bool {
+            if model["ownership"] as? String == "external" ||
+                (running && model["managed"] as? Bool == false) {
+                ollama = "Windows 模型：外部连接 · 未接管"
+            } else {
+                ollama = running ? "Windows 模型：本地连接已开启" : "Windows 模型：本地连接已关闭"
+            }
+        } else { ollama = Self.unknown.ollama }
+
+        guard let service = status["sub2api"] as? [String: Any] else {
+            sub2api = "Sub2API：未配置连接"
+            return
+        }
+        let local: String
+        if service["configured"] as? Bool == false {
+            local = "未配置连接"
+        } else if service["mode"] as? String == "direct" {
+            local = "直连地址"
+        } else if service["ownership"] as? String == "external" {
+            local = "外部连接 · 未接管"
+        } else if let running = service["running"] as? Bool {
+            local = running ? (service["listener"] as? Bool == true ? "本地连接已开启" : "本地连接启动中")
+                : "本地连接已关闭"
+        } else { local = "连接状态未知" }
+        let remote = service["remote"] as? [String: Any] ?? [:]
+        let state = remote["state"] as? String ?? "unchecked"
+        guard state == "ok" || state == "error" || state == "stale" else {
+            sub2api = "Sub2API：\(local) · API 未检查"
+            return
+        }
+        let result = state == "stale" ? "上次检查已过期" : state == "ok" ? "上次检查通过" : "上次检查未通过"
+        let checked: Date?
+        if let raw = remote["checked_at"] as? String {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = formatter.date(from: raw) { checked = date }
+            else {
+                formatter.formatOptions = [.withInternetDateTime]
+                checked = formatter.date(from: raw)
+            }
+        } else { checked = nil }
+        if let checked = checked {
+            let clock = DateFormatter()
+            clock.dateFormat = "HH:mm"
+            let ttl = max(0, remote["ttl_seconds"] as? Double ?? 300)
+            let stale = state == "stale" || remote["stale"] as? Bool == true || now.timeIntervalSince(checked) > ttl || checked > now
+            let label = stale ? "上次检查已过期" : result
+            sub2api = "Sub2API：\(local) · \(label) \(clock.string(from: checked))"
+        } else {
+            sub2api = "Sub2API：\(local) · \(result) · 时间未知"
+        }
+    }
 }
 
 final class LocalClient: NSObject, URLSessionTaskDelegate {
@@ -170,14 +314,17 @@ final class LocalClient: NSObject, URLSessionTaskDelegate {
         completionHandler(nil)  // Only the configured loopback endpoint.
     }
 
-    func request(_ path: String, token: String? = nil) -> [String: Any]? {
+    func request(_ path: String, token: String? = nil, method: String? = nil) -> [String: Any]? {
         var request = URLRequest(url: URL(string: base + path)!)
-        let timeout: TimeInterval = token == nil ? 4 : 75
+        let verb = method ?? (token == nil ? "GET" : "POST")
+        let timeout: TimeInterval = verb == "GET" ? 4 : 75
         request.timeoutInterval = timeout
+        request.httpMethod = verb
         if let token = token {
-            request.httpMethod = "POST"
-            request.httpBody = Data("{}".utf8)
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            if verb == "POST" {
+                request.httpBody = Data("{}".utf8)
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            }
             request.setValue(token, forHTTPHeaderField: "X-Local-CSRF")
         }
         let ready = DispatchSemaphore(value: 0)
@@ -224,7 +371,23 @@ final class LocalClient: NSObject, URLSessionTaskDelegate {
               record["url"] as? String == base, record["instance"] as? String == instance else {
             return .unavailable
         }
-        return .running(LocalSession(instance: instance, csrf: csrf))
+        return .running(LocalSession(instance: instance, csrf: csrf,
+                                     supportsPassiveStatus: reply["passive_status"] as? Bool == true))
+    }
+
+    func connectionSummary(for session: LocalSession) -> ConnectionSummary {
+        // Old servers may ignore query parameters and perform remote probes.
+        // Only a backend explicitly advertising passive status may be queried.
+        guard session.supportsPassiveStatus,
+              let status = request("/api/status?passive=1", token: session.csrf, method: "GET"),
+              status["passive"] as? Bool == true,
+              status["instance"] as? String == session.instance else { return .unknown }
+        let recordURL = URL(fileURLWithPath: settings.runtime).appendingPathComponent("data/server.json")
+        guard let bytes = try? Data(contentsOf: recordURL),
+              let record = (try? JSONSerialization.jsonObject(with: bytes)) as? [String: Any],
+              record["url"] as? String == base,
+              record["instance"] as? String == session.instance else { return .unknown }
+        return ConnectionSummary(status: status)
     }
 }
 
@@ -235,6 +398,8 @@ final class ConsoleMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let queue = DispatchQueue(label: "local.ai.console.lifecycle", qos: .utility)
     var statusItem: NSStatusItem!
     var stateItem = NSMenuItem(title: "正在启动…", action: nil, keyEquivalent: "")
+    var ollamaItem = NSMenuItem(title: ConnectionSummary.unknown.ollama, action: nil, keyEquivalent: "")
+    var sub2apiItem = NSMenuItem(title: ConnectionSummary.unknown.sub2api, action: nil, keyEquivalent: "")
     var openItem: NSMenuItem!
     var startItem: NSMenuItem!
     var quitItem: NSMenuItem!
@@ -284,6 +449,10 @@ final class ConsoleMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.delegate = self
         stateItem.isEnabled = false
         menu.addItem(stateItem)
+        for item in [ollamaItem, sub2apiItem] {
+            item.isEnabled = false
+            menu.addItem(item)
+        }
         menu.addItem(.separator())
         openItem = NSMenuItem(title: "打开控制台…", action: #selector(openConsole), keyEquivalent: "o")
         startItem = NSMenuItem(title: "启动控制台", action: #selector(startConsole), keyEquivalent: "")
@@ -317,6 +486,15 @@ final class ConsoleMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                     keyEquivalent: "w"))
         fileItem.submenu = fileMenu
         main.addItem(fileItem)
+        let editItem = NSMenuItem(title: "编辑", action: nil, keyEquivalent: "")
+        let editMenu = NSMenu(title: "编辑")
+        for (title, action, key) in [("撤销", "undo:", "z"), ("剪切", "cut:", "x"),
+                                     ("复制", "copy:", "c"), ("粘贴", "paste:", "v"),
+                                     ("全选", "selectAll:", "a")] {
+            editMenu.addItem(NSMenuItem(title: title, action: Selector(action), keyEquivalent: key))
+        }
+        editItem.submenu = editMenu
+        main.addItem(editItem)
         let windowItem = NSMenuItem(title: "窗口", action: nil, keyEquivalent: "")
         let windowMenu = NSMenu(title: "窗口")
         windowMenu.addItem(NSMenuItem(title: "最小化", action: #selector(NSWindow.performMiniaturize(_:)),
@@ -331,8 +509,11 @@ final class ConsoleMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) { refresh() }
 
-    func display(_ title: String, alive: Bool, busy: Bool = false) {
+    func display(_ title: String, alive: Bool, busy: Bool = false,
+                 summary: ConnectionSummary = .unknown) {
         stateItem.title = title
+        ollamaItem.title = summary.ollama
+        sub2apiItem.title = summary.sub2api
         running = alive
         statusItem.button?.alphaValue = alive ? 1 : 0.5
         statusItem.button?.toolTip = "本地 AI 控制台 · " + title
@@ -349,11 +530,14 @@ final class ConsoleMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Diagnostic state contains no credentials, request bodies or private config.
         let record: [String: Any] = ["pid": ProcessInfo.processInfo.processIdentifier,
                                    "backend_running": running, "state": stateItem.title,
+                                   "ollama_summary": ollamaItem.title,
+                                   "sub2api_summary": sub2apiItem.title,
                                    "status_item_visible": statusItem.isVisible,
                                    "icon_loaded": statusItem.button?.image != nil,
                                    "console_window_number": panel.window?.windowNumber ?? 0,
                                    "console_window_visible": panel.window?.isVisible ?? false,
-                                   "console_window_minimized": panel.window?.isMiniaturized ?? false]
+                                   "console_window_minimized": panel.window?.isMiniaturized ?? false,
+                                   "console_page": panel.activePage]
         let path = URL(fileURLWithPath: settings.runtime).appendingPathComponent("data/menu-state.json")
         if let data = try? JSONSerialization.data(withJSONObject: record) {
             try? data.write(to: path, options: .atomic)
@@ -367,11 +551,17 @@ final class ConsoleMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let state = self.client.inspect()
             let childAlive = self.child?.isRunning == true
             let fullyStopped = self.completedQuit(for: self.attachedInstance)
-            if case .running(let session) = state { self.attachedInstance = session.instance }
+            var summary = ConnectionSummary.unknown
+            if case .running(let session) = state {
+                self.attachedInstance = session.instance
+                summary = self.client.connectionSummary(for: session)
+            }
             DispatchQueue.main.async {
                 guard !self.quitting, !self.starting else { return }
                 switch state {
-                case .running: self.display("后台运行中", alive: true)
+                case .running(let session):
+                    self.panel.updateInstance(session.instance)
+                    self.display("后台运行中 · API 状态独立", alive: true, summary: summary)
                 case .stopped:
                     if fullyStopped && !childAlive {
                         self.mayTerminate = true
@@ -435,13 +625,17 @@ final class ConsoleMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     } while process.isRunning && Date() < deadline
                 } catch { state = .unavailable }
             }
-            if case .running(let session) = state { self.attachedInstance = session.instance }
+            var summary = ConnectionSummary.unknown
+            if case .running(let session) = state {
+                self.attachedInstance = session.instance
+                summary = self.client.connectionSummary(for: session)
+            }
             let childAlive = self.child?.isRunning == true
             DispatchQueue.main.async {
                 self.starting = false
                 switch state {
                 case .running(let session):
-                    self.display("后台运行中", alive: true)
+                    self.display("后台运行中 · API 状态独立", alive: true, summary: summary)
                     if openPage { self.panel.show(instance: session.instance) }
                 case .stopped:
                     self.display(childAlive ? "后台仍在启动，请稍候" : "启动未完成，请查看本机日志", alive: false)

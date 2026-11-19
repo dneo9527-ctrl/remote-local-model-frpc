@@ -10,28 +10,69 @@
     <section class="card connection-card">
       <div class="card-title"><span class="symbol">⇄</span><h2>Windows 模型</h2><button class="switch" role="switch" aria-checked="false" aria-label="模型连接开关" id="ollama-toggle" disabled><span></span></button></div>
       <div class="connection-overview"><strong id="ollama-state">正在检查</strong><code id="ollama-url">http://127.0.0.1:11435</code></div>
-      <div class="connection-health"><p id="ollama-detail">正在读取连接状态</p></div>
+      <div class="connection-health"><p id="ollama-detail">正在读取连接状态</p><button class="text-button" id="ollama-diagnostics">诊断</button></div>
       <div class="launch-actions"><button class="secondary" id="cherry">Cherry Studio ↗</button><a class="secondary" href="/chat" target="_blank" rel="noopener">网页聊天 ↗</a></div>
-      <details class="connection-settings" open><summary>连接设置</summary>
-        <div class="route-row"><label for="model-route">VPS 线路</label><select id="model-route" aria-label="VPS 线路" disabled><option value="">读取中…</option></select><button class="secondary" id="change-route" disabled>切换线路</button></div>
-        <p class="connection-note">与 Windows 选择同一 VPS，请在回答结束后切换。</p>
+      <details class="connection-settings" open><summary>已保存连接方案<button class="text-button manage-routes" id="manage-model-routes" type="button">管理线路</button></summary>
+        <div class="route-row"><label for="model-route">VPS 线路</label><span class="route-name" id="model-route-name" hidden></span><select id="model-route" aria-label="VPS 线路" disabled><option value="">读取中…</option></select><button class="secondary" id="change-route" disabled>应用线路</button></div>
+        <p class="route-state" id="model-route-state">正在读取当前线路</p>
+        <p class="connection-note" id="model-route-hint" hidden>选择后点应用才生效；可在“管理线路”中新增或编辑。</p>
+        <p class="connection-note" id="ollama-guard">与 Windows 选择同一 VPS，请在回答结束后切换；外部客户端的生成状态无法确认。</p>
       </details>
     </section>
     <section class="card sub2api-card" id="sub2api-card" hidden aria-labelledby="sub2api-title">
       <div class="card-title"><span class="symbol">⇄</span><h2 id="sub2api-title">Windows Sub2API</h2><button class="switch" role="switch" aria-checked="false" aria-label="Sub2API 连接开关" id="sub2api-toggle" disabled><span></span></button></div>
       <div class="connection-overview"><strong id="sub2api-state">正在读取本地连接</strong><code id="sub2api-url">http://127.0.0.1:18081/v1</code></div>
-      <div class="connection-health api-status"><span>API</span><b class="off" id="sub2api-api-state">未检查</b><button class="text-button" id="sub2api-check" disabled>检查 API</button></div>
+      <div class="connection-health api-status"><span>API</span><b class="off" id="sub2api-api-state">未检查</b><button class="text-button" id="sub2api-check" disabled>检查 API</button><button class="text-button" id="sub2api-diagnostics">诊断</button></div>
       <div class="launch-actions"><button class="secondary" id="ccswitch" disabled>打开 CC Switch ↗</button></div>
-      <details class="connection-settings" open><summary>连接设置</summary>
-        <div class="route-row"><label for="sub2api-route">Sub2API 连接</label><select id="sub2api-route" aria-label="Sub2API 连接配置" disabled><option value="">读取中…</option></select><button class="secondary" id="change-sub2api-route" disabled>切换连接</button></div>
+      <details class="connection-settings" open><summary>已保存连接方案<button class="text-button manage-routes" id="manage-sub2api-routes" type="button">管理线路</button></summary>
+        <div class="route-row"><label for="sub2api-route">Sub2API 连接</label><span class="route-name" id="sub2api-route-name" hidden></span><select id="sub2api-route" aria-label="Sub2API 连接配置" disabled><option value="">读取中…</option></select><button class="secondary" id="change-sub2api-route" disabled>应用连接</button></div>
+        <p class="route-state" id="sub2api-route-state">正在读取当前连接</p>
+        <p class="connection-note" id="sub2api-route-hint" hidden>选择后点应用才生效；可在“管理线路”中新增或编辑。</p>
         <p class="connection-note" id="sub2api-detail">正在读取连接状态</p>
-        <p class="connection-note" id="sub2api-api-detail">点击“检查 API”后才会发送健康检查。</p>
+        <p class="connection-note" id="sub2api-api-detail">打开“检查 API”，再手动执行各项检查。</p>
         <p class="connection-note">在 CC Switch 中选择 <b>Windows Sub2API</b>。</p>
       </details>
     </section>
   </div>
   <div id="message" class="message" role="status" aria-live="polite">正在读取状态…</div>
-  <details class="management"><summary>管理与维护<span>更新 · 日志 · 退出</span></summary><div class="actions"><button class="secondary" id="updates">检查更新</button><a class="secondary" href="https://github.com/dneo9527-ctrl/remote-local-model-frpc/releases" target="_blank" rel="noopener noreferrer">版本下载 ↗</a><button class="secondary" id="logs">查看日志</button><button class="secondary" id="quit">全部退出</button></div><p>关闭窗口可继续后台运行；全部退出会停止本机 Ollama、Sub2API 连接及控制台。</p></details>
+  <details class="management"><summary>管理与维护<span>更新 · 日志 · 退出</span></summary><div class="actions"><button class="secondary" id="updates">检查更新</button><a class="secondary" href="https://github.com/dneo9527-ctrl/remote-local-model-frpc/releases" target="_blank" rel="noopener noreferrer">版本下载 ↗</a><button class="secondary" id="logs">分类日志</button><button class="secondary" id="console-diagnostics">控制台诊断</button><button class="secondary" id="quit">全部退出</button></div><p>关闭窗口可继续后台运行；全部退出会停止本机 Ollama、Sub2API 连接及控制台。</p></details>
   <footer><span>仅本机访问 · 模型在 Windows</span><span>⌘W 关闭 · ⌘M 最小化</span></footer>
 </main>
+<dialog class="route-manager" id="route-manager" aria-labelledby="route-manager-title">
+  <div class="inspector-heading"><h2 id="route-manager-title">管理 VPS 线路</h2><button class="text-button" id="routes-quit" type="button">全部退出</button><button class="text-button" id="routes-close" type="button">关闭 ×</button></div>
+  <p class="route-manager-intro">VPS 是中转节点，连接的仍是你的 Windows。两端需使用匹配的 frps、provider 和凭据；新增线路尚未验证可用性。</p>
+  <div class="inspector-toolbar"><label for="routes-service">连接服务</label><select id="routes-service"><option value="ollama">Windows 模型</option><option value="sub2api">Windows Sub2API</option></select><button class="secondary" id="routes-refresh" type="button">刷新列表</button></div>
+  <div class="route-manager-grid">
+    <section class="saved-routes"><label for="routes-list">本机已保存的方案</label><select id="routes-list" size="5" aria-label="已保存线路"></select><p class="route-item-detail" id="route-item-detail">正在读取…</p><div class="route-list-actions"><button class="secondary" id="route-new" type="button">新增</button><button class="secondary" id="route-edit" type="button">编辑</button><button class="secondary" id="route-duplicate" type="button">复制为副本</button><button class="secondary" id="route-copy" type="button">复制 visitor 配置</button><button class="secondary" id="route-delete" type="button">删除</button></div><div class="route-delete-confirm" id="route-delete-confirm" hidden><p id="route-delete-question"></p><button class="secondary" id="route-delete-yes" type="button">确认删除</button><button class="text-button" id="route-delete-no" type="button">取消</button></div><p class="route-manager-help">复制的 visitor 配置含隧道凭据，仅向自己的设备传送；不会复制到聊天或上传。</p></section>
+    <form id="route-form" class="route-form" hidden>
+      <h3 id="route-editor-title">新增线路</h3>
+      <label for="route-name">方案名称<input id="route-name" maxlength="80" required autocomplete="off"></label>
+      <label for="route-input-mode">填写方式<select id="route-input-mode"><option value="manual">手工填写</option><option value="import">导入 Windows visitor TOML</option></select></label>
+      <div class="route-fields" id="route-manual-fields">
+        <label for="route-server">frps 地址<input id="route-server" placeholder="例：frps.example.com" autocomplete="off"></label>
+        <label for="route-port">frps 控制端口<input id="route-port" type="number" min="1" max="65535" inputmode="numeric"></label>
+        <label class="full" for="route-provider">Windows provider 名称<input id="route-provider" placeholder="例：sub2api_ke" autocomplete="off"></label>
+        <label for="route-token">frps token<input id="route-token" type="password" autocomplete="new-password" placeholder="新增必填；编辑留空保留"></label>
+        <label for="route-secret">STCP secretKey<input id="route-secret" type="password" autocomplete="new-password" placeholder="新增必填；编辑留空保留"></label>
+      </div>
+      <div id="route-import-fields" hidden><label for="route-file">选择本机 TOML 文件<input id="route-file" type="file" accept=".toml,text/plain"></label><label for="route-toml">或粘贴 visitor TOML<textarea id="route-toml" rows="7" maxlength="65536" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="仅在本机处理，保存后清空"></textarea></label></div>
+      <p class="route-manager-help" id="route-fixed-settings"></p><p class="route-manager-help">旧凭据不回显。保存不会切换线路；修改使用中方案会另存副本。</p><div class="route-list-actions"><button class="primary" id="route-save" type="submit">保存方案</button><button class="secondary" id="route-edit-cancel" type="button">取消编辑</button></div>
+    </form>
+    <div class="route-editor-empty" id="route-editor-empty">选择方案后编辑，或新增其他 VPS。Windows 目标服务不变，应用前需先配置好 Windows 对应的 provider。</div>
+  </div>
+  <div class="message" id="routes-message" role="status" aria-live="polite">仅管理本机方案，不自动测试或应用。</div>
+</dialog>
+<dialog class="inspector" id="inspector" aria-labelledby="inspector-title">
+  <div class="inspector-heading"><h2 id="inspector-title">分层诊断</h2><button class="text-button" id="inspector-quit">全部退出</button><button class="text-button" id="inspector-close" aria-label="关闭诊断与日志">关闭 ×</button></div>
+  <div class="inspector-toolbar"><label for="inspector-service">组件</label><select id="inspector-service"><option value="ollama">Windows 模型</option><option value="sub2api">Windows Sub2API</option><option value="console">本地控制台</option></select><button class="secondary" id="inspector-refresh">刷新记录</button></div>
+  <p class="inspector-time" id="inspector-time">打开诊断只读取已有记录，不发送远端请求。</p>
+  <div id="diagnostics-view">
+    <ol class="diagnostic-layers" id="diagnostic-layers"></ol>
+    <div class="diagnostic-actions"><button class="secondary" id="diagnostic-health">1 · 检查健康</button><button class="secondary" id="diagnostic-auth">2 · 验证 Key 与模型列表</button></div>
+    <div class="diagnostic-request"><label for="diagnostic-model">实际模型</label><select id="diagnostic-model" disabled><option value="">先验证模型列表</option></select><button class="primary" id="diagnostic-response" disabled>3 · 发送最小模型请求</button></div>
+    <p class="inspector-hint" id="diagnostic-hint">每一步由你点击执行。最小模型请求会使用所选模型，可能消耗上游额度。</p>
+  </div>
+  <pre class="safe-logs" id="logs-view" hidden aria-label="脱敏分类日志"></pre>
+  <div class="message" id="inspector-message" role="status" aria-live="polite">正在读取记录…</div>
+</dialog>
 </body></html>

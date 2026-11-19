@@ -40,8 +40,12 @@ __pycache__/
 **/config/settings.json
 **/config/routes/
 **/config/ollama-routes/
+**/config/route-profiles/
 **/dist/
 **/evidence/
 **/ag-*/
 *handoff*.json
 **/updates/
+
+# Visitor exports contain private STCP connection keys
+**/exports/

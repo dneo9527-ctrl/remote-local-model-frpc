@@ -1,1 +1,14 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>网页聊天 · 本地 AI</title><link rel="stylesheet" href="/style.css"><script src="/chat.js" defer></script></head><body><header><div class="brand">LOCAL AI / WEB CHAT</div><div class="heading"><div><h1>网页聊天</h1><p>通过同一连接，使用 Windows 上的模型。</p></div><a href="/" class="badge">返回控制台</a></div></header><main class="chat-shell"><div class="chat-toolbar"><label for="model">模型</label><select id="model"><option value="">读取模型中…</option></select><button class="secondary" id="reload">刷新模型</button><button class="secondary" id="new-chat">新对话</button></div><section class="chat-box" id="messages" aria-label="聊天记录" aria-live="polite"><p class="muted" id="empty">选择模型，发送第一条消息。本页聊天仅保存在当前页面内存中。</p></section><form id="form"><textarea id="input" placeholder="输入消息，点击发送" aria-label="聊天消息" maxlength="16000" required></textarea><div class="actions"><button class="primary" id="send" type="submit">发送</button><button class="secondary" id="stop" type="button" disabled>停止回答</button></div></form><div class="message" id="message" role="status">正在读取模型列表…</div><p class="chat-hint">保留最近 12 条消息。历史条数与 token 预算不同：长文本仍可能超出模型窗口；必要时开始新对话。4K / 8K / 16K 沿用 Windows 预设及对应输出上限。温度等参数沿用模型默认值。本页暂不含附件、自动压缩或知识库；中断不自动重发。</p></main></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>网页聊天 · 本地 AI</title><link rel="stylesheet" href="/style.css"><script src="/chat.js" defer></script></head>
+<body class="chat-home">
+<header><div class="chat-header"><div><div class="brand">LOCAL AI / WEB CHAT</div><h1>网页聊天</h1></div><a href="/" class="secondary">返回控制台</a></div></header>
+<main class="chat-shell">
+  <div class="chat-toolbar"><label for="model">模型</label><select id="model" disabled><option value="">读取模型中…</option></select><button class="secondary" id="reload" disabled>刷新模型</button><button class="text-button" id="remember-model" disabled>设为默认</button><button class="secondary" id="new-chat" disabled>新对话</button></div>
+  <div class="model-status" id="model-status">正在读取模型列表…</div>
+  <section class="chat-box" id="messages" aria-label="聊天记录" aria-live="polite"><p class="muted" id="empty">选择模型，发送第一条消息。聊天与草稿留在当前窗口内存中。</p></section>
+  <form id="form"><textarea id="input" placeholder="输入消息，点击发送" aria-label="聊天消息" maxlength="16000" required></textarea><div class="chat-send-actions"><span class="chat-model-default" id="model-default">默认模型尚未读取</span><button class="secondary" id="stop" type="button" disabled>停止回答</button><button class="primary" id="send" type="submit" disabled>发送</button></div></form>
+  <div class="message" id="message" role="status" aria-live="polite">正在读取模型列表…</div>
+  <details class="chat-help"><summary>会话与连接说明</summary><p>保留最近 12 条消息，长文本仍可能超出模型窗口。切换模型会开始新对话并保留未发送草稿；停止或断线不会自动重发。默认模型只影响本机网页聊天，不改变 CC Switch 或 Windows 设置。本页暂不含附件、自动压缩和知识库。</p></details>
+</main>
+</body></html>

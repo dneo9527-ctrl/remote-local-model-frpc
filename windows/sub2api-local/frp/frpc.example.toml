@@ -7,13 +7,14 @@ auth.token = "CHANGE_ME_FRPS_TOKEN"
 transport.tls.enable = true
 log.level = "info"
 log.disablePrintColor = true
-log.to = "logs/frpc.log"
+log.to = "console"
 log.maxDays = 7
 
 [[proxies]]
 name = "sub2api_ke"
 type = "stcp"
 secretKey = "CHANGE_ME_STCP_SECRET"
-localIP = "127.0.0.1"
+# Docker service DNS; Windows local access remains 127.0.0.1:8080.
+localIP = "sub2api"
 localPort = 8080
 transport.useEncryption = true

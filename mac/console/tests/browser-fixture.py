@@ -5,8 +5,10 @@ import secrets
 import sys
 import threading
 import time
+import tempfile
+from pathlib import Path
 
-from app.server import Handler
+from app.server import Controller, Handler
 
 
 class Model(BaseHTTPRequestHandler):
@@ -28,8 +30,17 @@ if __name__ == '__main__':
     server = ThreadingHTTPServer(('127.0.0.1',0),Handler)
     server.authority = f'127.0.0.1:{server.server_port}'
     server.token = secrets.token_urlsafe(32)
-    server.controller = type('Fixture',(),{'config':{'ollama':{'url':f'http://127.0.0.1:{up.server_port}'}}})()
+    temp = tempfile.TemporaryDirectory()
+    root = Path(temp.name)
+    config = root / 'settings.json'
+    config.write_text(json.dumps({'runtime': str(root / 'runtime'),
+                                 'automatic_health_checks': False,
+                                 'codex_config': str(root / 'unused-codex.toml'),
+                                 'ollama': {'url': f'http://127.0.0.1:{up.server_port}'}}))
+    server.controller = Controller(config)
     print('http://'+server.authority,flush=True)
     threading.Thread(target=server.serve_forever,daemon=True).start()
     sys.stdin.read()
     server.shutdown();server.server_close();up.shutdown();up.server_close()
+    server.controller.pool.shutdown(wait=True)
+    temp.cleanup()

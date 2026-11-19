@@ -3,12 +3,43 @@
 # =============================================================================
 # Adapted from Wei-Shaw/sub2api deploy/docker-compose.local.yml.
 # See THIRD-PARTY.md for source and license information.
-# Run Init-Sub2API.cmd, fill frp/frpc.toml, install frpc, then Start-Sub2API.cmd.
+# Run Init-Sub2API.cmd, fill frp/frpc.toml, then Start-Sub2API.cmd.
+# The project includes its frpc container; no separate Windows frpc is needed.
 # PostgreSQL, Redis and Sub2API data live in Docker named volumes, outside Git.
 # Copying this directory does not back up or migrate those volumes.
 # =============================================================================
 
 services:
+  # Project start/stop includes this private tunnel provider.
+  sub2api-frpc:
+    image: ghcr.io/fatedier/frpc:v0.72.0@sha256:c447f0c3572a02bd3da5677f249db3b62cb02d7367d1d5bb420678ce092d65c8
+    container_name: sub2api-frpc
+    restart: unless-stopped
+    command: ["-c", "/etc/frp/frpc.toml"]
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    volumes:
+      - type: bind
+        source: ./frp/frpc.toml
+        target: /etc/frp/frpc.toml
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      sub2api:
+        condition: service_healthy
+        restart: true
+    networks:
+      - sub2api-network
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
   # ===========================================================================
   # Sub2API Application
   # ===========================================================================

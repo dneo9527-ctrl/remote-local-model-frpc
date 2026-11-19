@@ -173,12 +173,19 @@ class Upstream(BaseHTTPRequestHandler):
 class HttpTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory()
+        root = Path(cls.temp.name)
         cls.up = LocalHTTPServer(('127.0.0.1',0), Upstream)
         threading.Thread(target=cls.up.serve_forever,daemon=True).start()
         cls.server = LocalHTTPServer(('127.0.0.1',0), Handler)
         cls.server.authority = f'127.0.0.1:{cls.server.server_port}'
         cls.server.token = 'csrf-fixture'
-        cls.server.controller = type('TestController', (), {'config': {'ollama': {'url':f'http://127.0.0.1:{cls.up.server_port}'}}})()
+        config = root / 'settings.json'
+        config.write_text(json.dumps({'runtime': str(root / 'runtime'),
+                                     'automatic_health_checks': False,
+                                     'codex_config': str(root / 'unused-codex.toml'),
+                                     'ollama': {'url': f'http://127.0.0.1:{cls.up.server_port}'}}))
+        cls.server.controller = Controller(config)
         threading.Thread(target=cls.server.serve_forever,daemon=True).start()
         cls.base = 'http://' + cls.server.authority
         cls.op = urllib.request.build_opener(urllib.request.ProxyHandler({}))
@@ -186,6 +193,8 @@ class HttpTests(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.server.shutdown();cls.server.server_close();cls.up.shutdown();cls.up.server_close()
+        cls.server.controller.pool.shutdown(wait=True)
+        cls.temp.cleanup()
 
     def request(self,path='/',data=None,headers=None):
         return self.op.open(urllib.request.Request(self.base+path,data=data,headers=headers or {}),timeout=5)

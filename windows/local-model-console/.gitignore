@@ -8,6 +8,7 @@
 /config/
 /state/
 /logs/
+/exports/
 /bin/
 *.previous
 *.bak

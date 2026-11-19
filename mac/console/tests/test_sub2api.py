@@ -165,7 +165,8 @@ class Sub2ApiTests(unittest.TestCase):
         def probe_result(url):
             return {'ok': True, 'detail': 'API fixture response', 'latency_ms': 7}
 
-        with patch('app.server.probe', side_effect=probe_result) as probe:
+        with patch('app.server.probe', side_effect=probe_result) as probe, \
+                patch('app.server.port_listening', return_value=False):
             self.controller.action('sub2api', 'check')
             first = self.local_status()['sub2api']['remote']
             second = self.local_status()['sub2api']['remote']
@@ -177,7 +178,8 @@ class Sub2ApiTests(unittest.TestCase):
         self.assertEqual(first, second)
 
     def test_failed_manual_check_is_visible_without_refresh_retry(self):
-        with patch('app.server.probe', return_value={'ok': False,
+        with patch('app.server.port_listening', return_value=False), \
+                patch('app.server.probe', return_value={'ok': False,
                                                     'detail': 'ConnectionResetError',
                                                     'latency_ms': 9}) as probe:
             try:

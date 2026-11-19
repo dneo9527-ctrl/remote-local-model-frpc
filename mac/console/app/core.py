@@ -13,6 +13,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+import uuid
 
 
 class UserError(Exception):
@@ -76,14 +77,29 @@ def digest(data: bytes):
 
 def opener():
     # Local calls must never be rerouted by HTTP_PROXY/HTTPS_PROXY.
-    return urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs):
+            return None
+    return urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
 
 
 def probe(url, timeout=10):
     started = time.monotonic()
     try:
-        with opener().open(url, timeout=timeout) as response:
-            data = json.loads(response.read(2 * 1024 * 1024))
+        with opener().open(url, timeout=min(timeout, 4)) as response:
+            read = getattr(response, "read1", response.read)
+            chunks, size = [], 0
+            while time.monotonic() - started < timeout:
+                chunk = read(65536)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > 2 * 1024 * 1024:
+                    raise ValueError()
+                chunks.append(chunk)
+            else:
+                raise TimeoutError()
+            data = json.loads(b"".join(chunks))
         ok = isinstance(data, dict) and (data.get("status") == "ok" or
                                         isinstance(data.get("version"), str))
         return {"ok": ok, "latency_ms": round((time.monotonic() - started) * 1000),
@@ -153,6 +169,27 @@ class Tunnel:
         self.settings = settings
         self.runtime = runtime
         self.process = None
+        self.generation = uuid.uuid4().hex
+
+    def local_state(self):
+        """Only our live worker's receipt identifies its current frpc child."""
+        state = {}
+        if self.running:
+            try:
+                path = self.runtime / "data/sub2api-worker.json"
+                if path.stat().st_size <= 4096:
+                    value = json.loads(path.read_text(encoding="utf-8"))
+                    if isinstance(value, dict) and value.get("worker_pid") == self.process.pid:
+                        state = value
+            except (OSError, ValueError, TypeError):
+                pass
+        return state
+
+    @property
+    def connection_generation(self):
+        state = self.local_state()
+        return (self.generation, self.process.pid if self.running else None,
+                state.get("generation"), state.get("running"))
 
     @property
     def running(self):
@@ -177,6 +214,7 @@ class Tunnel:
         log = self.runtime / "logs/worker.log"
         log.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         with log.open("ab", buffering=0) as out:
+            self.generation = uuid.uuid4().hex
             self.process = subprocess.Popen(
                 [sys.executable, str(Path(__file__).with_name("worker.py")),
                  "--parent", str(os.getpid()), "--binary", binary, "--config", cfg,

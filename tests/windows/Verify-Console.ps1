@@ -38,7 +38,7 @@ function Invoke-IsolatedCheck {
 $success = $false
 try {
     # Preserve the source's PowerShell 5.1 UTF-8-with-BOM contract.
-    foreach ($file in Get-ChildItem -LiteralPath $source -Filter '*.ps1' -File -Recurse) {
+    foreach ($file in @(Get-ChildItem -LiteralPath $source -Filter '*.ps1' -File; Get-ChildItem -LiteralPath (Join-Path $source 'scripts') -Filter '*.ps1' -File)) {
         $bytes = [IO.File]::ReadAllBytes($file.FullName)
         if ($bytes.Length -lt 3 -or $bytes[0] -ne 239 -or $bytes[1] -ne 187 -or $bytes[2] -ne 191) {
             throw ('Windows PowerShell source is missing its UTF-8 BOM: '+$file.Name)
@@ -49,6 +49,14 @@ try {
     Invoke-IsolatedCheck -Name 'switch-recovery' -Script (Join-Path $source 'check-switch-recovery.ps1') -CountPattern 'SWITCH_RECOVERY_CHECKS_PASSED=(\d+)' -MinimumCount 29
     Invoke-IsolatedCheck -Name 'stcp-safety' -Script (Join-Path $source 'check-stcp-safety.ps1') -CountPattern 'STCP_SAFETY_CHECKS_PASSED=(\d+)'
     Invoke-IsolatedCheck -Name 'ui-regression' -Script (Join-Path $source 'check-ui-fixes.ps1') -Arguments @('-Executable',(Join-Path $source 'LocalAI-Control.exe')) -CountPattern '"Passed"\s*:\s*(\d+)' -MinimumCount 19
+    Invoke-IsolatedCheck -Name 'settings' -Script (Join-Path $source 'check-settings.ps1') -CountPattern 'SETTINGS_CHECKS_PASSED=(\d+)' -MinimumCount 45
+    Invoke-IsolatedCheck -Name 'export' -Script (Join-Path $source 'check-export.ps1') -CountPattern 'EXPORT_CHECKS_PASSED=(\d+)' -MinimumCount 64
+    Invoke-IsolatedCheck -Name 'service-controls' -Script (Join-Path $source 'check-service-controls.ps1') -CountPattern 'SERVICE_CONTROL_CHECKS_PASSED=(\d+)' -MinimumCount 33
+    Invoke-IsolatedCheck -Name 'layout-settings' -Script (Join-Path $source 'check-layout-settings.ps1') -CountPattern 'LAYOUT_SETTINGS_CHECKS_PASSED=(\d+)' -MinimumCount 59
+    Invoke-IsolatedCheck -Name 'model-choice' -Script (Join-Path $source 'check-model-choice.ps1') -Arguments @('-Executable',(Join-Path $source 'LocalAI-Control.exe')) -CountPattern 'MODEL_CHOICE_CHECKS_PASSED=(\d+)' -MinimumCount 26
+    Invoke-IsolatedCheck -Name 'stop-all' -Script (Join-Path $source 'check-stop-all.ps1') -CountPattern 'STOP_ALL_CHECKS_PASSED=(\d+)' -MinimumCount 29
+    Invoke-IsolatedCheck -Name 'stop-ui' -Script (Join-Path $source 'check-stop-ui.ps1') -Arguments @('-Executable',(Join-Path $source 'LocalAI-Control.exe')) -CountPattern 'STOP_UI_CHECKS_PASSED=(\d+)' -MinimumCount 16
+    Invoke-IsolatedCheck -Name 'native-stop-processes' -Script (Join-Path $source 'check-stop-processes.ps1') -CountPattern 'STOP_PROCESS_CHECKS_PASSED=(\d+)' -MinimumCount 7
     Invoke-IsolatedCheck -Name 'offline-preview' -Script (Join-Path $PSScriptRoot 'Render-ConsolePreview.ps1') -Arguments @('-Executable',(Join-Path $source 'LocalAI-Control.exe'),'-OutputDirectory',$output)
     $success = $true
 } finally {

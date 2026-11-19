@@ -1,4 +1,4 @@
-# Native Windows PowerShell 5.1 regression suite. No containers or tunnels start.
+﻿# Native Windows PowerShell 5.1 regression suite. No containers or tunnels start.
 $ErrorActionPreference = 'Stop'
 $source = Split-Path $PSScriptRoot -Parent
 $temporary = Join-Path ([IO.Path]::GetTempPath()) ('frpc-windows-tests-' + [Guid]::NewGuid().ToString('N'))
@@ -52,49 +52,44 @@ try {
     . (Join-Path $temporary 'Tunnel.ps1')
     # Placeholder rejection must happen before any Docker or frpc execution.
     Assert-Throws { Assert-Sub2ApiConfiguration } 'Unconfigured deployment passed preflight.'
-    # Only the expected encrypted STCP local application may be published.
-    [IO.File]::WriteAllText($script:FrpcPath, 'fixture-only-not-executable')
+    # Only the expected encrypted Docker STCP application may be published.
     $frpGood = [IO.File]::ReadAllText($frpFile).Replace('frps.example.com', 'relay.invalid').Replace('CHANGE_ME_FRPS_TOKEN', 'fixture-only')
-    [IO.File]::WriteAllText($frpFile, $frpGood)
-    Assert-Sub2ApiConfiguration
-    $script:passed++
-    [IO.File]::WriteAllText($frpFile, $frpGood.Replace('localIP = "127.0.0.1"', 'localIP = "192.0.2.1"'))
-    Assert-Throws { Assert-Sub2ApiConfiguration } 'Non-loopback STCP application was accepted.'
-    [IO.File]::WriteAllText($frpFile, ('includes = ["other.toml"]' + "`n" + $frpGood))
-    Assert-Throws { Assert-Sub2ApiConfiguration } 'Additional FRP includes were accepted.'
     [IO.File]::WriteAllText($frpFile, $frpGood)
     $composeArgs = @(Get-Sub2ApiComposeArguments)
     Assert-True ($composeArgs -contains '--file' -and $composeArgs -contains '--env-file' -and $composeArgs[-1] -eq 'sub2api-local') 'Compose identity not explicit.'
-    # No actual Docker invocation: effective config comes from this test fixture.
-    $script:FixtureHost = '127.0.0.1'
+    $script:FixtureHost='127.0.0.1';$script:FixtureFrpcPorts=$null;$script:FixtureSince=$null
     function docker {
-        $global:LASTEXITCODE = 0
-        @{services = @{sub2api = @{ports = @(@{host_ip=$script:FixtureHost;published='8080';target=8080;protocol='tcp'})};postgres=@{};redis=@{}}} | ConvertTo-Json -Depth 8 -Compress
+        $global:LASTEXITCODE=0
+        if ($args -contains 'config') {
+            @{services=@{sub2api=@{ports=@(@{host_ip=$script:FixtureHost;published='8080';target=8080;protocol='tcp'})};postgres=@{};redis=@{};'sub2api-frpc'=@{ports=$script:FixtureFrpcPorts}}}|ConvertTo-Json -Depth 8 -Compress
+        } elseif ($args -contains 'ps') { 'fixture-container-id' }
+        elseif ($args -contains 'inspect') { '{"Running":true,"StartedAt":"2026-11-18T00:00:00Z"}' }
+        elseif ($args -contains 'logs') {
+            $script:FixtureSince=$args[[Array]::IndexOf($args,'--since')+1]
+            'login to server success';'[sub2api_ke] start proxy success'
+        } elseif ($args -contains 'stop') { $script:StoppedService=$args[-1] }
+        elseif ($args -contains 'up') { $script:StartedService=$args[-1] }
+        else { throw 'Unexpected fixture Docker command.' }
     }
-    Assert-Sub2ApiCompose
-    $script:passed++
-    $script:FixtureHost = '0.0.0.0'
-    Assert-Throws { Assert-Sub2ApiCompose } 'Effective public binding was accepted.'
-    # Exact ownership: prefix paths and other executables are not ours.
-    $script:FixtureProcesses = @(
-        [pscustomobject]@{ExecutablePath=$script:FrpcPath;CommandLine=('"' + $script:FrpcPath + '" -c "' + $script:FrpcConfig + '"');ProcessId=101;CreationDate=[datetime]'2026-11-17T00:00:00Z'},
-        [pscustomobject]@{ExecutablePath=$script:FrpcPath;CommandLine=('frpc.exe -c "' + $script:FrpcConfig + '.other"');ProcessId=102;CreationDate='other'},
-        [pscustomobject]@{ExecutablePath='C:\unrelated\frpc.exe';CommandLine=('frpc.exe -c "' + $script:FrpcConfig + '"');ProcessId=103;CreationDate='other'}
-    )
-    function Get-CimInstance { param($Filter, $ErrorAction) $script:FixtureProcesses }
-    $found = @(Get-Sub2ApiTunnel)
-    Assert-True ($found.Count -eq 1 -and $found[0].ProcessId -eq 101) 'Ownership matched an unrelated process.'
-    $script:Stopped = @()
-    function Get-Process {
-        param($Id, $ErrorAction)
-        $p = [pscustomobject]@{Id=$Id;Handle=1;Path=$script:FrpcPath;StartTime=[datetime]'2026-11-17T00:00:00Z'}
-        $p | Add-Member ScriptMethod Kill { $script:Stopped += $this.Id }
-        $p | Add-Member ScriptMethod WaitForExit { param($Timeout) return $true }
-        $p | Add-Member ScriptMethod Dispose { }
-        return $p
-    }
+    Assert-Sub2ApiConfiguration;$script:passed++
+    [IO.File]::WriteAllText($frpFile,$frpGood.Replace('localIP = "sub2api"','localIP = "192.0.2.1"'))
+    Assert-Throws {Assert-Sub2ApiConfiguration} 'Wrong Docker application was accepted.'
+    [IO.File]::WriteAllText($frpFile,('includes = ["other.toml"]'+"`n"+$frpGood))
+    Assert-Throws {Assert-Sub2ApiConfiguration} 'Additional FRP includes were accepted.'
+    [IO.File]::WriteAllText($frpFile,$frpGood)
+    $script:FixtureHost='0.0.0.0'
+    Assert-Throws {Assert-Sub2ApiConfiguration} 'Effective public binding was accepted.'
+    $script:FixtureHost='127.0.0.1';$script:FixtureFrpcPorts=@(@{published=7000;target=7000})
+    Assert-Throws {Assert-Sub2ApiConfiguration} 'Published frpc container port was accepted.'
+    $script:FixtureFrpcPorts=$null
+    $state=Get-Sub2ApiTunnel
+    Assert-True ($state.Running -and $state.StartedAt -eq '2026-11-18T00:00:00Z') 'Did not read the project container state.'
+    Wait-Sub2ApiTunnel
+    Assert-True ($script:FixtureSince -eq $state.StartedAt) 'Registration check used stale logs.'
+    Start-Sub2ApiTunnel
+    Assert-True ($script:StartedService -eq 'sub2api-frpc') 'Start did not target the project tunnel service.'
     Stop-Sub2ApiTunnel
-    Assert-True ($script:Stopped.Count -eq 1 -and $script:Stopped[0] -eq 101) 'Stop touched an unrelated process.'
+    Assert-True ($script:StoppedService -eq 'sub2api-frpc') 'Stop did not target the project tunnel service.'
     # An independent Windows process must be denied while this mutex is held.
     $child = Join-Path $temporary 'Lock-Probe.ps1'
     [IO.File]::WriteAllText($child, ". (Join-Path `$PSScriptRoot 'Tunnel.ps1')`ntry { Invoke-Sub2ApiLock { }; exit 99 } catch { exit 23 }`n")

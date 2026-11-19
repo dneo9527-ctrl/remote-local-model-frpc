@@ -1,6 +1,6 @@
 ﻿#requires -Version 5.1
 [CmdletBinding()]
-param([string]$ProjectRoot, [switch]$LibraryOnly, [ValidateSet('','Status','Start','Stop','Cherry')][string]$BackendAction = '', [string]$ServerAddress, [string]$StartScript)
+param([string]$ProjectRoot, [switch]$LibraryOnly, [ValidateSet('','Status','Start','Stop','StopOllama','StopAll','Cherry')][string]$BackendAction = '', [string]$ServerAddress, [string]$StartScript)
 
 # Windows PowerShell 5.1 / WPF. Keep this file UTF-8 WITH BOM for Chinese text.
 # Services use the existing start-services.ps1; closing this window keeps them running.
@@ -153,15 +153,133 @@ function Stop-OwnedFrpc {
     return $count
 }
 
+function Get-LocalOllamaPort {
+    param([string]$Root)
+    $path = Join-Path $Root 'config\panel-preferences.json'
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return 11434 }
+    $raw = [IO.File]::ReadAllText($path, [Text.Encoding]::UTF8)
+    if (-not $raw.TrimStart().StartsWith('{')) { throw 'panel-preferences.json 格式不正确，请检查设置。' }
+    $preferences = $raw | ConvertFrom-Json
+    if ($null -eq $preferences -or $preferences.GetType().FullName -ne 'System.Management.Automation.PSCustomObject') { throw 'panel-preferences.json 格式不正确，请检查设置。' }
+    if ($preferences.PSObject.Properties.Name -notcontains 'ollamaPort') { return 11434 }
+    $port = 0
+    if (-not [int]::TryParse([string]$preferences.ollamaPort, [ref]$port) -or $port -lt 1 -or $port -gt 65535) {
+        throw 'Ollama 端口必须是 1–65535 之间的整数，请检查设置。'
+    }
+    return $port
+}
+
 function Get-LocalOllama {
+    param([ValidateRange(1,65535)][int]$Port = 11434)
     $response = $null; $reader = $null
     try {
-        $request = [Net.HttpWebRequest]::Create('http://127.0.0.1:11434/api/tags')
+        $request = [Net.HttpWebRequest]::Create(('http://127.0.0.1:' + $Port + '/api/tags'))
         $request.Proxy = $null; $request.Timeout = 2200; $request.ReadWriteTimeout = 2200
         $response = $request.GetResponse(); $reader = [IO.StreamReader]::new($response.GetResponseStream())
         return ($reader.ReadToEnd() | ConvertFrom-Json)
     } catch { return $null }
     finally { if ($reader) { $reader.Dispose() }; if ($response) { $response.Dispose() } }
+}
+
+function Get-OllamaExecutablePaths {
+    # Known installation locations, not a process-name or PATH search.
+    $candidates = @((Join-Path $env:LOCALAPPDATA 'Programs\Ollama\ollama.exe'))
+    if ($env:ProgramFiles) { $candidates += Join-Path $env:ProgramFiles 'Ollama\ollama.exe' }
+    @($candidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+        ForEach-Object { [IO.Path]::GetFullPath($_) } | Select-Object -Unique)
+}
+
+function Test-OwnedOllamaServer {
+    param($Process, [array]$Executables)
+    if (-not $Process -or -not $Process.ExecutablePath -or -not $Process.CreationDate -or $Process.ProcessId -le 0) { return $false }
+    if (-not ($Executables | Where-Object { [string]::Equals($_, $Process.ExecutablePath, [StringComparison]::OrdinalIgnoreCase) })) { return $false }
+    # The tray app, runner and an unrelated Ollama CLI are never stop targets.
+    return [bool]([string]$Process.CommandLine -match '(?i)^\s*(?:"[^"]+"|\S+)\s+serve(?:\s|$)')
+}
+
+function Get-OllamaStopSnapshot {
+    param([ValidateRange(1,65535)][int]$Port = 11434)
+    $reason = ''; $owners = @(); $queried = $false
+    try {
+        $listeners = @(Get-NetTCPConnection -State Listen -ErrorAction Stop | Where-Object { $_.LocalPort -eq $Port })
+        $queried = $true
+        $owners = @($listeners | Select-Object -ExpandProperty OwningProcess -Unique)
+        if ($owners.Count -eq 0) { $reason = '端口 ' + $Port + ' 没有监听进程。' }
+        elseif ($owners.Count -ne 1) { $reason = '端口 ' + $Port + ' 有多个监听所有者，未提供自动停止。' }
+        else {
+            $current = @(Get-CimInstance Win32_Process -Filter ('ProcessId = ' + [int]$owners[0]) -ErrorAction Stop)
+            if ($current.Count -eq 1 -and (Test-OwnedOllamaServer $current[0] @(Get-OllamaExecutablePaths))) {
+                return [pscustomobject]@{ CanStop=$true; HasListener=$true; QuerySucceeded=$true; Reason='仅停止已确认的 Ollama API 监听进程，会中断正在使用它的问答。'; Process=$current[0] }
+            }
+            $reason = '无法确认端口 ' + $Port + ' 属于已安装 Ollama 的 serve 进程，未提供自动停止。'
+        }
+    } catch { $reason = '无法核对端口 ' + $Port + ' 的监听归属，请从 Ollama 自身退出。' }
+    [pscustomobject]@{ CanStop=$false; HasListener=($owners.Count -gt 0); QuerySucceeded=$queried; Reason=$reason; Process=$null }
+}
+
+function Open-OllamaProcessHandle {
+    param([int]$ProcessId)
+    $process = [Diagnostics.Process]::GetProcessById($ProcessId)
+    try {
+        # Retain a handle to this incarnation before any revalidation or termination.
+        [void]$process.Handle
+        return $process
+    } catch { $process.Dispose(); throw }
+}
+
+function Stop-ConfirmedOllama {
+    param([ValidateRange(1,65535)][int]$Port = 11434)
+    $snapshot = Get-OllamaStopSnapshot -Port $Port
+    if (-not $snapshot.CanStop) { throw $snapshot.Reason }
+    $target = $snapshot.Process
+    $process = Open-OllamaProcessHandle ([int]$target.ProcessId)
+    try {
+        $started = $process.StartTime.ToUniversalTime()
+        $recorded = ([datetime]$target.CreationDate).ToUniversalTime()
+        # CIM timestamps have microsecond precision; compare at the millisecond boundary.
+        if ([math]::Floor($started.Ticks / 10000) -ne [math]::Floor($recorded.Ticks / 10000)) {
+            throw 'Ollama PID 已被复用或归属已变化，未停止该进程。'
+        }
+        $current = Get-OllamaStopSnapshot -Port $Port
+        if (-not $current.CanStop -or $current.Process.ProcessId -ne $target.ProcessId -or
+            $current.Process.CreationDate -ne $target.CreationDate -or
+            -not [string]::Equals($current.Process.ExecutablePath, $target.ExecutablePath, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'Ollama 监听归属已变化，未停止该进程；请刷新状态。'
+        }
+        if ($process.HasExited) { return 'Ollama 监听进程已经退出，未停止其他进程。' }
+        $process.Kill()
+        if (-not $process.WaitForExit(4000)) { throw 'Ollama 监听进程尚未退出，请稍后刷新。' }
+    } finally { $process.Dispose() }
+    # A tray supervisor may restart it. Never chase a new PID or kill a process tree.
+    $after = Get-OllamaStopSnapshot -Port $Port
+    if ($after.Process) { return '已停止原 Ollama 监听进程，但检测到新的监听；可能由托盘重启，请从 Ollama 自身退出。未停止新进程。' }
+    return '已停止已确认的 Ollama API 监听进程；frp 与 Tailscale 保持运行。模型子进程未批量终止，实际状态请以刷新结果为准。'
+}
+
+function Stop-LocalAiServices {
+    param([string]$Root)
+    $port = Get-LocalOllamaPort $Root
+    $failures = [Collections.Generic.List[string]]::new()
+    # Best effort for both requested components, without rollback or restarting.
+    try { [void](Stop-OwnedFrpc $Root) } catch { $failures.Add('隧道：' + $_.Exception.Message) }
+    try {
+        $model = Get-OllamaStopSnapshot -Port $port
+        if (-not $model.QuerySucceeded) { throw $model.Reason }
+        if ($model.HasListener) {
+            if (-not $model.CanStop) { throw $model.Reason }
+            [void](Stop-ConfirmedOllama -Port $port)
+        }
+    } catch { $failures.Add('模型：' + $_.Exception.Message) }
+    # Verify after both operations. A supervisor's new/unknown listener counts
+    # as still running; it is never chased or claimed as successfully stopped.
+    try { if (@(Get-OwnedFrpc $Root).Count -gt 0) { $failures.Add('本项目仍有隧道进程，请刷新查看。') } } catch { $failures.Add('无法确认隧道退出状态。') }
+    try {
+        $modelAfter = Get-OllamaStopSnapshot -Port $port
+        if (-not $modelAfter.QuerySucceeded) { $failures.Add('无法确认模型端口退出状态。') }
+        elseif ($modelAfter.HasListener) { $failures.Add('模型端口仍有监听，可能被托盘重新启动；未停止新的或未知的进程。') }
+    } catch { $failures.Add('无法确认模型端口退出状态。') }
+    if ($failures.Count -gt 0) { throw ('停止未全部完成：' + ($failures -join ' ')) }
+    return '模型 API 与本项目隧道已停止。Tailscale 由系统继续管理；点击一键启动可重新连接。'
 }
 
 function Get-TunnelStatus {
@@ -201,7 +319,9 @@ function Get-LocalAiStatus {
     $config = Read-FrpcAddress (Join-Path $Root 'config\frpc.toml')
     $model = 'qwen3:8b'
     try { $settings = Get-Content -LiteralPath (Join-Path $Root 'config\model-settings.json') -Raw -Encoding UTF8 | ConvertFrom-Json; if ($settings.defaultModel) { $model = $settings.defaultModel } } catch {}
-    $tags = Get-LocalOllama; $online = $null -ne $tags
+    $ollamaPort = Get-LocalOllamaPort $Root
+    $tags = Get-LocalOllama -Port $ollamaPort; $online = $null -ne $tags
+    $ollamaControl = Get-OllamaStopSnapshot -Port $ollamaPort
     $installed = $online -and @($tags.models | Where-Object { $_.name -eq $model }).Count -gt 0
     $processes = @(Get-OwnedFrpc $Root)
     $tunnel = Get-TunnelStatus (Join-Path $Root 'logs\frpc.log') $processes
@@ -212,7 +332,10 @@ function Get-LocalAiStatus {
     $tsConnected = $ts -and $ts.BackendState -eq 'Running'
     $tsIp = ''; if ($tsConnected) { $tsIp = @($ts.TailscaleIPs | Where-Object { $_ -notmatch ':' }) | Select-Object -First 1 }
     [pscustomobject]@{ CheckedAt = (Get-Date); Server = $config.Address; Model = $model; ModelInstalled = $installed;
-        OllamaOnline = $online; Tunnel = $tunnel; FrpcCount = $processes.Count; TailscaleConnected = [bool]$tsConnected; TailscaleIP = $tsIp }
+        Models = @($tags.models | Where-Object { $_.name -is [string] -and $_.name } | ForEach-Object { $_.name });
+        OllamaOnline = $online; OllamaListening = [bool]$ollamaControl.HasListener; OllamaPort = $ollamaPort; OllamaCanStop = [bool]$ollamaControl.CanStop; OllamaStopReason = $ollamaControl.Reason;
+        OllamaProcessId = $(if ($ollamaControl.Process) { $ollamaControl.Process.ProcessId } else { $null });
+        Tunnel = $tunnel; FrpcCount = $processes.Count; TailscaleConnected = [bool]$tsConnected; TailscaleIP = $tsIp }
 }
 
 function Find-CherryStudio {
@@ -333,16 +456,17 @@ function Restore-FrpcRoute {
 }
 
 function Invoke-LocalAiAction {
-    param([string]$Root, [ValidateSet('Status','Start','Stop','Cherry')][string]$Action, [string]$Server)
+    param([string]$Root, [ValidateSet('Status','Start','Stop','StopOllama','StopAll','Cherry')][string]$Action, [string]$Server)
     $success = $true; $message = ''; $operationLock = $null; $locked = $false
     try {
-        if ($Action -in @('Start','Stop')) {
+        if ($Action -in @('Start','Stop','StopOllama','StopAll')) {
             $operationLock = [Threading.Mutex]::new($false, ('Local\LocalAIControl-' + $env:USERNAME))
             try { $locked = $operationLock.WaitOne(0) } catch [Threading.AbandonedMutexException] { $locked = $true }
             if (-not $locked) { throw '另一窗口正在操作服务，请稍后刷新。' }
         }
         switch ($Action) {
             'Start' {
+                if (Test-Path -LiteralPath (Join-Path $Root 'config\.panel-port-change.pending.json')) { throw '端口保存尚未完成，请打开面板设置恢复后再启动。' }
                 if (-not $Server -or $Server.Length -gt 253 -or $Server -notmatch '^[A-Za-z0-9.:-]+$' -or [Uri]::CheckHostName($Server) -eq 'Unknown') { throw '服务器地址需为有效 IP 或域名，不含协议、端口或路径。' }
                 if (-not $script:LocalAiStartScript -or -not (Test-Path -LiteralPath $script:LocalAiStartScript -PathType Leaf)) { throw '本版 STCP 启动辅助脚本缺失；未修改线路或调用项目旧脚本。' }
                 $config = Join-Path $Root 'config\frpc.toml'; $exe = Join-Path $Root 'bin\frp\bridge.exe'
@@ -371,6 +495,8 @@ function Invoke-LocalAiAction {
                 if ($startAttempt.LogWarning) { $message += ' ' + $startAttempt.LogWarning }
             }
             'Stop' { $count = Stop-OwnedFrpc $Root; $message = '已停止本项目隧道（' + $count + ' 个进程），Ollama 和 Tailscale 保持运行。' }
+            'StopOllama' { $message = Stop-ConfirmedOllama -Port (Get-LocalOllamaPort $Root) }
+            'StopAll' { $message = Stop-LocalAiServices -Root $Root }
             'Cherry' {
                 $cherry = Find-CherryStudio $Root
                 if (-not $cherry) { throw '未找到 Cherry Studio。支持安装版，以及 LocalProjects\tools\cherry-studio 下的便携版。' }
@@ -415,4 +541,4 @@ try {
         if (Test-Path -LiteralPath $exe) { Start-Process -FilePath $exe -ArgumentList ('--project-root "' + $root + '"') -WindowStyle Normal | Out-Null; $found=$true; break }
     }
     if (-not $found) { throw '请将 LocalAI-Control.exe 与本文件放在一起，或放进项目 tools\control-panel 目录。' }
-} catch { Add-Type -AssemblyName PresentationFramework; [void][Windows.MessageBox]::Show($_.Exception.Message,'本地模型控制台','OK','Error') }
+} catch { Add-Type -AssemblyName PresentationFramework; [void][Windows.MessageBox]::Show($_.Exception.Message,'远程模型控制台','OK','Error') }

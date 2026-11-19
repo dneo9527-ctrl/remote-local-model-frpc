@@ -5,8 +5,9 @@ from pathlib import Path
 import signal
 import subprocess
 import time
+import uuid
 
-from core import FileLock
+from core import FileLock, write_json
 
 
 def alive(pid):
@@ -45,32 +46,45 @@ def main():
         signal.signal(sig, stop)
     with FileLock(args.runtime / "data/sub2api-worker.lock"):
         child = None
+        state = {"worker_pid": os.getpid(), "running": False}
+        state_path = args.runtime / "data/sub2api-worker.json"
         try:
             while not stopped and alive(args.parent):
                 log = args.runtime / "logs/frpc.log"
                 if log.exists() and log.stat().st_size > 2 * 1024 * 1024:
                     log.replace(log.with_suffix(".log.1"))
                 with log.open("ab", buffering=0) as out:
+                    state = {"worker_pid": os.getpid(), "generation": uuid.uuid4().hex,
+                             "running": False, "log_offset": out.tell()}
+                    write_json(state_path, state)
                     child = subprocess.Popen([args.binary, "-c", args.config],
                                              cwd=str(Path(args.config).parent),
                                              stdin=subprocess.DEVNULL, stdout=out, stderr=out)
+                    state.update(child_pid=child.pid, running=True)
+                    write_json(state_path, state)
                     while not stopped and alive(args.parent) and child.poll() is None:
                         time.sleep(0.25)
                     if stopped or not alive(args.parent):
                         break
+                    state["running"] = False
+                    write_json(state_path, state)
                 # Unexpected exit: bounded-rate restart, while still owned.
                 for _ in range(20):
                     if stopped or not alive(args.parent):
                         break
                     time.sleep(0.25)
         finally:
-            if child is not None and child.poll() is None:
-                child.terminate()
-                try:
-                    child.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    child.kill()
-                    child.wait(timeout=5)
+            state["running"] = False
+            try:
+                write_json(state_path, state)
+            finally:
+                if child is not None and child.poll() is None:
+                    child.terminate()
+                    try:
+                        child.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        child.kill()
+                        child.wait(timeout=5)
 
 
 if __name__ == "__main__":

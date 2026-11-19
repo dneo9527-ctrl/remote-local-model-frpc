@@ -42,14 +42,17 @@
 .console-home .connection-settings,.console-home .management{white-space:normal}
 .console-home .connection-settings{margin:0;border-top:1px solid #eef0f4;padding:13px 0 0;min-width:0}
 .console-home .connection-settings summary{cursor:pointer;color:#627185;font-size:12px;font-weight:600;line-height:1.5;list-style:none;display:flex;align-items:center;gap:6px}
+.console-home .connection-settings .manage-routes{margin-left:auto;font-weight:400;font-size:11px;padding:0;color:#6983ab}
+.console-home .connection-settings:has(.manage-routes) summary::after{margin-left:0}
 .console-home .connection-settings summary::-webkit-details-marker{display:none}
 .console-home .connection-settings summary::after{content:"⌄";margin-left:auto;color:#a0aabb;font-size:13px;font-weight:400;transform:rotate(-90deg)}
 .console-home .connection-settings[open] summary::after{transform:none}
 .console-home .route-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:7px;align-items:center;margin-top:11px}
 .console-home .route-row label{grid-column:1/-1;color:#7c899a;font-size:11px;line-height:1.4}
 .console-home .route-row select{min-width:0;width:100%;padding:7px 9px;height:32px;border:1px solid #dfe5ee;border-radius:7px;color:#62758d;background:#fafbfc;font-size:12px}
+.console-home .route-name{grid-column:1/-1;min-width:0;padding:7px 0;color:#62758d;font-size:12px;line-height:1.5;overflow-wrap:anywhere}
 .console-home .route-row .secondary{font-size:11px;padding:7px 9px}
-.console-home .connection-settings .connection-note{font-size:11px;line-height:1.6;color:#8995a5;margin:9px 0 0;overflow-wrap:anywhere}
+.console-home .connection-settings .connection-note{font-size:11px;line-height:1.55;color:#8995a5;margin:7px 0 0;overflow-wrap:anywhere}
 .console-home .connection-note b{font-weight:500;color:#78899e}
 .console-home .sub2api-card button:disabled{cursor:not-allowed}
 .console-home .message{border:0;border-radius:7px;background:#edf1f6;color:#8391a4;font-size:11px;line-height:1.6;padding:8px 11px;margin:12px 0 0}
@@ -74,3 +77,82 @@
   .console-home .connection-grid>.card{display:block;grid-row:auto;padding:16px}
   .console-home footer{font-size:9px}
 }
+
+/* Route intent and diagnostics stay compact; longer evidence lives in one dialog. */
+.console-home .route-state{font-size:10px;line-height:1.5;color:#8190a3;margin:6px 0 0;overflow-wrap:anywhere}
+.console-home .route-state.pending{color:#a3793d}
+.console-home .connection-health>p{flex:1;min-width:0}
+.console-home .connection-health .text-button{flex:none;font-size:11px;padding:3px 0;color:#6983ab}
+.inspector{width:min(620px,calc(100vw - 32px));max-height:calc(100dvh - 48px);overflow:auto;border:1px solid #dfe5ed;border-radius:14px;padding:20px;color:#354255;background:#fff;box-shadow:0 18px 70px #1a2c4140}
+.inspector::backdrop{background:#23364d52}
+.inspector-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:15px}
+.inspector-heading h2{font-size:17px;flex:1}
+.inspector-toolbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.inspector-toolbar label,.diagnostic-request label{font-size:11px;color:#8290a1}
+.inspector-toolbar select{min-width:0;flex:1;font-size:12px;padding:8px}
+.inspector .secondary,.inspector .primary{min-height:32px;font-size:11px;padding:7px 10px}
+.inspector-time,.inspector-hint{font-size:11px;line-height:1.65;color:#8b98a7;margin:12px 0}
+.diagnostic-layers{list-style:none;margin:0;padding:0;border-top:1px solid #edf0f5}
+.diagnostic-layers li{display:flex;gap:12px;align-items:flex-start;border-bottom:1px solid #edf0f5;padding:11px 0;min-width:0}
+.diagnostic-layers li>div{min-width:0}
+.diagnostic-layers b{font-size:12px;font-weight:600}
+.diagnostic-layers p{font-size:11px;color:#8190a3;line-height:1.65;margin:4px 0 0;overflow-wrap:anywhere}
+.layer-status{flex:none;min-width:48px;border-radius:5px;background:#f0f3f7;color:#8190a3;font-size:10px;line-height:1.6;padding:3px 5px;text-align:center}
+.layer-status.ok{background:#eaf5ef;color:#2b896c}.layer-status.error{background:#fff1e8;color:#ac7541}.layer-status.stale{background:#f6f0e4;color:#a18445}
+.diagnostic-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:15px}
+.diagnostic-request{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:11px}
+.diagnostic-request select{font-size:12px;padding:8px;min-width:0;flex:1}
+.safe-logs{white-space:pre-wrap;overflow-wrap:anywhere;max-height:46vh;overflow:auto;background:#f7f9fc;border:1px solid #e7edf5;border-radius:8px;padding:12px;font:11px/1.8 ui-monospace,SFMono-Regular,monospace;color:#687d94}
+.inspector .message{margin-top:12px;font-size:11px}
+
+/* Route editing remains a local modal; the home cards stay short. */
+.route-manager{width:min(820px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow:auto;border:1px solid #dfe5ed;border-radius:14px;padding:20px;color:#354255;background:#fff;box-shadow:0 18px 70px #1a2c4140}
+.route-manager::backdrop{background:#23364d52}
+.route-manager-intro,.route-manager-help{font-size:11px;line-height:1.65;color:#8592a3;margin:9px 0 13px;white-space:normal;overflow-wrap:anywhere}
+.route-manager-grid{display:grid;grid-template-columns:minmax(210px,.8fr) minmax(0,1.2fr);gap:20px;margin-top:17px}
+.route-manager label{display:block;font-size:11px;color:#75859a;line-height:1.5}
+.route-manager input,.route-manager textarea,.route-manager select{display:block;width:100%;min-width:0;max-width:100%;padding:8px 9px;font:12px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;border:1px solid #dfe5ee;border-radius:7px;background:#fff;color:#405874;margin:5px 0 0}
+.route-manager input[type=file]{font-size:10px;padding:7px}
+.route-manager textarea{font-family:ui-monospace,SFMono-Regular,monospace;resize:vertical;min-height:120px;max-height:260px}
+.route-manager input:focus-visible{outline:3px solid #80b6ff;outline-offset:2px}
+.route-manager #routes-list{height:148px;padding:5px}
+.route-manager #routes-list option{padding:6px 7px;border-radius:4px}
+.route-list-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}
+.route-manager .secondary,.route-manager .primary{font-size:11px;min-height:31px;padding:6px 9px;border-radius:7px}
+.route-item-detail{font-size:10px;color:#8996a8;line-height:1.6;overflow-wrap:anywhere;margin:8px 0}
+.route-form{border-left:1px solid #e9edf3;padding-left:20px;min-width:0}
+.route-form h3{font-size:13px;font-weight:600;margin:0 0 10px}
+.route-form>label{margin-top:9px}
+.route-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-top:9px}
+.route-fields .full{grid-column:1/-1}
+.route-editor-empty{padding:20px;border:1px dashed #dfe5ee;border-radius:9px;color:#96a1b0;font-size:12px;line-height:1.8;align-self:start}
+.route-delete-confirm{background:#fff6ee;border:1px solid #f0ddc8;border-radius:7px;padding:9px;margin-top:11px;font-size:11px;color:#9d7547}
+.route-delete-confirm p{margin:0 0 8px}
+.route-manager .message{font-size:11px;line-height:1.6;padding:9px 11px;margin-top:14px;overflow-wrap:anywhere}
+@media(max-width:620px){.route-manager{padding:16px}.route-manager-grid{grid-template-columns:1fr;gap:15px}.route-form{border-left:0;border-top:1px solid #e9edf3;padding:15px 0 0}.route-fields{grid-template-columns:1fr}.route-manager .inspector-heading h2{font-size:15px}}
+
+/* The chat window shares the native panel's light palette and preserves drafts in memory. */
+.chat-home{background:#f5f6f8;color:#273343}
+.chat-home header{background:#fff;color:#253140;border-bottom:1px solid #e5e8ed;padding:15px 24px}
+.chat-header{max-width:852px;margin:auto;display:flex;align-items:center;justify-content:space-between;gap:16px}
+.chat-home .brand{font-size:10px;color:#8290a1;letter-spacing:1.2px}
+.chat-home h1{font-size:20px;line-height:1.35;margin:4px 0 0;font-weight:650}
+.chat-home .secondary,.chat-home .primary{font-size:12px;padding:7px 11px;min-height:32px;border-radius:7px}
+.chat-home .chat-shell{max-width:900px;padding:16px 24px 12px;height:calc(100dvh - 83px);min-height:480px;display:flex;flex-direction:column}
+.chat-home .chat-toolbar{gap:8px;margin-bottom:6px;flex:none}
+.chat-home .chat-toolbar>label{font-size:12px;color:#74869d}
+.chat-home .chat-toolbar select{min-width:80px;flex:1;padding:7px 9px;font-size:12px}
+.chat-home .chat-toolbar .text-button{font-size:11px;padding:5px}
+.chat-home .model-status{font-size:10px;color:#8795a8;margin:0 0 10px;flex:none}
+.chat-home .chat-box{flex:1;min-height:150px;max-height:none;padding:15px;border-radius:11px;border-color:#e1e5eb}
+.chat-home .bubble{font-size:13px;padding:11px 14px;line-height:1.75}
+.chat-home .bubble .label{font-size:10px}
+.chat-home .bubble details{margin-top:8px;white-space:pre-wrap}
+.chat-home #form{flex:none}
+.chat-home textarea{min-height:64px;max-height:180px;margin:12px 0 7px;padding:12px;font-size:13px;border-color:#dfe5ee;border-radius:9px}
+.chat-send-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.chat-model-default{flex:1;font-size:10px;color:#8996a8;min-width:80px;overflow-wrap:anywhere}
+.chat-home .message{flex:none;font-size:11px;line-height:1.5;padding:7px 10px;border-radius:7px;margin:10px 0 0}
+.chat-help{flex:none;font-size:10px;white-space:normal;color:#92a0b2;margin:10px 0 0}
+.chat-help summary{cursor:pointer}.chat-help p{line-height:1.7;margin:7px 0}
+@media(max-width:620px){.chat-home header{padding:13px 15px}.chat-home .chat-shell{padding:12px 14px;height:calc(100dvh - 78px)}.chat-home .chat-toolbar{gap:6px}.chat-home .chat-toolbar select{flex-basis:calc(100% - 40px)}.chat-home .chat-toolbar .secondary{font-size:11px}.inspector{padding:16px}.diagnostic-request label{flex-basis:100%}.diagnostic-request select{flex-basis:100%}}
