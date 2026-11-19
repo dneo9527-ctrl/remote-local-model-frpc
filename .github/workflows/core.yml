@@ -28,7 +28,7 @@ jobs:
         if: runner.os == 'macOS' && matrix.python == '3.12'
         run: xcrun swiftc -swift-version 5 -typecheck mac/menu/LocalAIConsole.swift
   panel-ui:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

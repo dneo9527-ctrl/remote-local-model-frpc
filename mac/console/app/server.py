@@ -51,14 +51,29 @@ class ChatSession:
         self.complete = threading.Event()
         self.upstream = None
         self.transport = None
+        self.client_connection = None
 
     def interrupt(self):
         self.cancelled.set()
-        if self.transport is not None and self.transport.sock is not None:
+        # End this exact downstream response immediately, independently of
+        # whether this platform wakes a buffered upstream header read at once.
+        # The chat handler has already disabled HTTP keep-alive for this socket.
+        if self.client_connection is not None:
             try:
-                self.transport.sock.shutdown(socket.SHUT_RDWR)
+                self.client_connection.shutdown(socket.SHUT_RDWR)
             except OSError:
                 pass
+        transport_socket = self.transport.sock if self.transport is not None else None
+        if transport_socket is not None:
+            try:
+                transport_socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            finally:
+                try:
+                    transport_socket.close()
+                except OSError:
+                    pass
         if self.upstream is not None:
             try:
                 self.upstream.fp.raw._sock.shutdown(socket.SHUT_RDWR)
@@ -564,6 +579,9 @@ class Handler(BaseHTTPRequestHandler):
                 raise UserError("消息格式或长度不符合限制。")
         url, session = self.server.controller.begin_chat(data.get("request_id"))
         self.close_connection = True
+        session.client_connection = self.connection
+        if session.cancelled.is_set():
+            session.interrupt()
         self.chat_session = session
         self.chat_cancelled = session.cancelled
         self.chat_complete = session.complete

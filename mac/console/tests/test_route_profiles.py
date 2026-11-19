@@ -43,11 +43,11 @@ class ProfileTests(unittest.TestCase):
         self.live = self.root / "live-visitor.toml"
         self.other = self.root / "other-visitor.toml"
         self.sub = self.root / "sub2-visitor.toml"
-        self.live.write_text(visitor())
-        self.other.write_text(visitor(addr="192.0.2.30"))
-        self.sub.write_text(visitor(18081, name="sub2api_ke"))
+        self.live.write_text(visitor(), encoding="utf-8")
+        self.other.write_text(visitor(addr="192.0.2.30"), encoding="utf-8")
+        self.sub.write_text(visitor(18081, name="sub2api_ke"), encoding="utf-8")
         self.key = self.root / "downstream.key"
-        self.key.write_text("fixture-downstream-never-in-visitor")
+        self.key.write_text("fixture-downstream-never-in-visitor", encoding="utf-8")
         self.config_path = self.root / "settings.json"
         self.config = {
             "runtime": str(self.root / "runtime"), "automatic_health_checks": False,
@@ -66,7 +66,7 @@ class ProfileTests(unittest.TestCase):
             "unrelated": {"MCP": "preserve", "permissions": ["keep"]},
         }
         self.config["sub2api_profiles"]["current-sub"] = dict(self.config["sub2api"], display_name="现用 Sub2")
-        self.config_path.write_text(json.dumps(self.config, ensure_ascii=False, indent=2) + "\n")
+        self.config_path.write_text(json.dumps(self.config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         self.controller = Controller(self.config_path)
 
     def tearDown(self):
@@ -85,7 +85,7 @@ class ProfileTests(unittest.TestCase):
                 patch("app.route_profiles.subprocess.run", side_effect=AssertionError("No process")):
             results = [list_routes(self.controller, service) for service in ("ollama", "sub2api")]
         raw = json.dumps(results)
-        for private in (TOKEN, SECRET, str(self.live), str(self.root), str(self.key), self.key.read_text()):
+        for private in (TOKEN, SECRET, str(self.live), str(self.root), str(self.key), self.key.read_text(encoding="utf-8")):
             self.assertNotIn(private, raw)
         item = results[0]["items"][0]
         self.assertTrue(item["editable"])
@@ -110,8 +110,15 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(self.controller.config["ollama_routes"]["current"], self.config["ollama_routes"]["current"])
         path = self.registered_file("ollama", result["saved_id"])
         self.assertEqual(path.parent, self.controller.runtime / "config/route-profiles")
-        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
-        document = tomllib.loads(path.read_text())
+        if os.name == "nt":
+            # Windows chmod controls the read-only bit, not POSIX owner/group
+            # permission bits. The same test still verifies file creation and
+            # supported writable state without claiming a POSIX mode or ACL.
+            self.assertTrue(path.is_file())
+            self.assertTrue(os.access(path, os.R_OK | os.W_OK))
+        else:
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        document = tomllib.loads(path.read_text(encoding="utf-8"))
         self.assertEqual(document["auth"]["token"], TOKEN)
         self.assertEqual(document["visitors"][0]["secretKey"], SECRET)
         self.assertEqual(document["serverAddr"], "192.0.2.99")
@@ -133,11 +140,11 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(self.other.read_bytes(), before)
         path = self.registered_file("ollama", "other")
         self.assertNotEqual(path, self.other)
-        self.assertEqual(tomllib.loads(path.read_text())["auth"]["token"], "fixture-new-token")
+        self.assertEqual(tomllib.loads(path.read_text(encoding="utf-8"))["auth"]["token"], "fixture-new-token")
 
     def test_registered_log_file_is_editable_but_only_managed_copy_uses_console(self):
         raw = visitor().replace('to = "console"', 'to = "/PRIVATE/existing-project/frpc.log"')
-        self.live.write_text(raw)
+        self.live.write_text(raw, encoding="utf-8")
         before = self.live.read_bytes()
         current = next(item for item in list_routes(self.controller, "ollama")["items"] if item["active"])
         self.assertTrue(current["editable"])
@@ -145,7 +152,7 @@ class ProfileTests(unittest.TestCase):
         self.assertNotIn("/PRIVATE", json.dumps(current))
         result = self.save(id="current", name="现用线路副本", fields={"server_port": 7443})
         self.assertTrue(result["created_copy"])
-        document = tomllib.loads(self.registered_file("ollama", result["saved_id"]).read_text())
+        document = tomllib.loads(self.registered_file("ollama", result["saved_id"]).read_text(encoding="utf-8"))
         self.assertEqual(document["log"]["to"], "console")
         self.assertEqual(self.live.read_bytes(), before)
         with patch("app.route_profiles.sys.platform", "darwin"), \
@@ -173,11 +180,11 @@ class ProfileTests(unittest.TestCase):
         profile = self.controller.config["sub2api_profiles"][result["saved_id"]]
         for field in ("frpc", "key_file", "base_url", "health_url", "port", "model"):
             self.assertEqual(profile[field], self.config["sub2api"][field])
-        document = tomllib.loads(path.read_text())
+        document = tomllib.loads(path.read_text(encoding="utf-8"))
         self.assertTrue(document["transport"]["tls"]["enable"])
         self.assertTrue(document["visitors"][0]["transport"]["useEncryption"])
         self.assertEqual(document["visitors"][0]["bindPort"], 18081)
-        self.assertNotIn(self.key.read_text(), path.read_text())
+        self.assertNotIn(self.key.read_text(encoding="utf-8"), path.read_text(encoding="utf-8"))
         self.assertEqual(self.sub.read_bytes(), before)
         self.assertEqual(self.controller.config["selected_route"], "current-sub")
 
@@ -259,11 +266,11 @@ class ProfileTests(unittest.TestCase):
         def write(path, content):
             atomic_write(path, content)
             if path.suffix == ".toml":
-                self.config_path.write_text(json.dumps(later))
+                self.config_path.write_text(json.dumps(later), encoding="utf-8")
         with patch("app.route_profiles.atomic_write", side_effect=write):
             with self.assertRaises(UserError):
                 self.save(name="新的 VPS", visitor_toml=visitor())
-        self.assertEqual(json.loads(self.config_path.read_text()), later)
+        self.assertEqual(json.loads(self.config_path.read_text(encoding="utf-8")), later)
         self.assertEqual(list((self.controller.runtime / "config/route-profiles").glob("*.toml")), [])
         self.assertTrue(any(p.read_bytes() == original for p in (self.controller.runtime / "backups").glob("*.json")))
 
@@ -285,10 +292,10 @@ class ProfileTests(unittest.TestCase):
                 with self.assertRaises(UserError):
                     action()
         later = dict(self.config, later_edit="preserve")
-        self.config_path.write_text(json.dumps(later))
+        self.config_path.write_text(json.dumps(later), encoding="utf-8")
         with self.assertRaises(UserError):
             self.save(name="测试", visitor_toml=visitor())
-        self.assertEqual(json.loads(self.config_path.read_text()), later)
+        self.assertEqual(json.loads(self.config_path.read_text(encoding="utf-8")), later)
 
     def test_managed_directory_symlink_and_source_symlink_rejected(self):
         target = self.root / "unrelated"

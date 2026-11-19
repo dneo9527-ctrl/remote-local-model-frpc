@@ -293,6 +293,32 @@ class DiagnosticsTests(unittest.TestCase):
         self.up.chat_finish.set()
         thread.join(timeout=1)
 
+    def test_cancel_closes_client_even_if_upstream_header_reader_is_still_blocked(self):
+        finished = threading.Event()
+        def chat():
+            try:
+                self.call("/api/chat", {"request_id": "fixture-blocked-header-reader", "model": "fixture-local:latest",
+                                         "messages": [{"role": "user", "content": "fixture"}]})
+            except Exception:
+                pass
+            finally:
+                finished.set()
+        thread = threading.Thread(target=chat)
+        thread.start()
+        self.assertTrue(self.up.chat_started.wait(timeout=1))
+        with self.controller.lock:
+            session = self.controller.chat_sessions["fixture-blocked-header-reader"]
+            # Simulate a platform where another thread's buffered header read
+            # does not wake immediately after upstream socket cancellation.
+            # The real handler transport remains blocked until chat_finish.
+            session.transport = SimpleNamespace(sock=MagicMock())
+        result = self.call("/api/chat/cancel", {"request_id": "fixture-blocked-header-reader"})
+        self.assertEqual(result["active_chats"], 0)
+        self.assertTrue(finished.wait(timeout=1), "The browser must receive EOF independently of the upstream reader")
+        self.assertFalse(self.up.chat_finish.is_set())
+        self.up.chat_finish.set()
+        thread.join(timeout=1)
+
     def test_health_never_follows_redirect_and_expired_success_is_stale(self):
         self.controller.config["sub2api"]["health_url"] = self.base + "/redirect"
         self.controller.check_health("sub2api")
