@@ -1,5 +1,6 @@
 // Native menu for the existing loopback console. No keys or upstream requests.
 import AppKit
+import WebKit
 import Foundation
 import Darwin
 
@@ -56,6 +57,96 @@ func connectionMenuImage() -> NSImage {
     image.isTemplate = true
     image.accessibilityDescription = "本地 AI 控制台：服务器连接电脑"
     return image
+}
+
+// Keep one local console panel, including its current page and unsent text.
+// Closing the panel hides it; only All Quit stops the owned connections.
+final class ConsolePanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
+    let baseURL: URL
+    private(set) var window: NSWindow?
+    private var webView: WKWebView?
+    private var instance: String?
+    private var loadFailed = false
+    var visibilityChanged: (() -> Void)?
+
+    init(baseURL: URL) { self.baseURL = baseURL }
+
+    private func isLocalPage(_ url: URL) -> Bool {
+        url.scheme == baseURL.scheme && url.host == baseURL.host && url.port == baseURL.port &&
+            url.user == nil && url.password == nil && ["/", "/chat"].contains(url.path)
+    }
+
+    func show(instance current: String) {
+        if window == nil {
+            let configuration = WKWebViewConfiguration()
+            configuration.websiteDataStore = .nonPersistent()
+            let view = WKWebView(frame: .zero, configuration: configuration)
+            view.navigationDelegate = self
+            view.uiDelegate = self
+            let panel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 660),
+                                 styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                                 backing: .buffered, defer: false)
+            panel.title = "本地 AI 控制台"
+            panel.minSize = NSSize(width: 560, height: 440)
+            panel.isReleasedWhenClosed = false
+            panel.collectionBehavior = [.moveToActiveSpace]
+            panel.contentView = view
+            panel.delegate = self
+            if !panel.setFrameUsingName("LocalAIConsolePanel") { panel.center() }
+            panel.setFrameAutosaveName("LocalAIConsolePanel")
+            window = panel
+            webView = view
+        }
+        // A new backend needs a new CSRF session. Ordinary reopen keeps drafts.
+        if instance != current || loadFailed {
+            instance = current
+            loadFailed = false
+            webView?.load(URLRequest(url: baseURL))
+        }
+        if window?.isMiniaturized == true { window?.deminiaturize(nil) }
+        NSApp.activate(ignoringOtherApps: true)
+        window?.makeKeyAndOrderFront(nil)
+        visibilityChanged?()
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        sender.orderOut(nil)
+        visibilityChanged?()
+        return false
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
+                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        guard let url = action.request.url else { decisionHandler(.cancel); return }
+        if isLocalPage(url) {
+            if action.targetFrame == nil {
+                webView.load(action.request)
+                decisionHandler(.cancel)
+            } else { decisionHandler(.allow) }
+        } else {
+            // Only an explicit link click can leave the local panel.
+            if action.navigationType == .linkActivated, ["http", "https"].contains(url.scheme ?? ""),
+               url.user == nil, url.password == nil {
+                NSWorkspace.shared.open(url)
+            }
+            decisionHandler(.cancel)
+        }
+    }
+
+    func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
+                 for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        nil  // Local target=_blank links are handled above in the same panel.
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { loadFailed = false }
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!,
+                 withError error: Error) {
+        if (error as NSError).code != NSURLErrorCancelled { loadFailed = true }
+    }
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        if (error as NSError).code != NSURLErrorCancelled { loadFailed = true }
+    }
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { loadFailed = true }
 }
 
 final class LocalClient: NSObject, URLSessionTaskDelegate {
@@ -137,6 +228,7 @@ final class LocalClient: NSObject, URLSessionTaskDelegate {
 final class ConsoleMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let settings: MenuSettings
     let client: LocalClient
+    let panel: ConsolePanel
     let queue = DispatchQueue(label: "local.ai.console.lifecycle", qos: .utility)
     var statusItem: NSStatusItem!
     var stateItem = NSMenuItem(title: "正在启动…", action: nil, keyEquivalent: "")
@@ -164,6 +256,7 @@ final class ConsoleMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
     init(_ settings: MenuSettings) {
         self.settings = settings
         self.client = LocalClient(settings)
+        self.panel = ConsolePanel(baseURL: URL(string: "http://127.0.0.1:\(settings.port)/")!)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -200,6 +293,7 @@ final class ConsoleMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
         quitItem.target = self
         menu.addItem(quitItem)
         statusItem.menu = menu
+        panel.visibilityChanged = { [weak self] in self?.writeDiagnosticState() }
         // Standard app menu also supports keyboard quit and accessibility.
         let main = NSMenu()
         let appItem = NSMenuItem(title: "本地 AI 控制台", action: nil, keyEquivalent: "")
@@ -231,11 +325,17 @@ final class ConsoleMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
         startItem.isEnabled = !busy
         quitItem.isEnabled = !busy
         mainQuitItem.isEnabled = !busy
+        writeDiagnosticState()
+    }
+
+    func writeDiagnosticState() {
         // Diagnostic state contains no credentials, request bodies or private config.
         let record: [String: Any] = ["pid": ProcessInfo.processInfo.processIdentifier,
-                                   "backend_running": alive, "state": title,
+                                   "backend_running": running, "state": stateItem.title,
                                    "status_item_visible": statusItem.isVisible,
-                                   "icon_loaded": statusItem.button?.image != nil]
+                                   "icon_loaded": statusItem.button?.image != nil,
+                                   "console_window_number": panel.window?.windowNumber ?? 0,
+                                   "console_window_visible": panel.window?.isVisible ?? false]
         let path = URL(fileURLWithPath: settings.runtime).appendingPathComponent("data/menu-state.json")
         if let data = try? JSONSerialization.data(withJSONObject: record) {
             try? data.write(to: path, options: .atomic)
@@ -271,10 +371,9 @@ final class ConsoleMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func openConsole() { start(openPage: true) }
     @objc func startConsole() { start(openPage: false) }
     @objc func reopenNotice(_ notification: Notification) { openConsole() }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        // Reopening an already running accessory app reveals its existing menu.
-        sender.activate(ignoringOtherApps: true)
-        statusItem.button?.performClick(nil)
+        openConsole()
         return false
     }
 
@@ -323,9 +422,9 @@ final class ConsoleMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
             DispatchQueue.main.async {
                 self.starting = false
                 switch state {
-                case .running:
+                case .running(let session):
                     self.display("后台运行中", alive: true)
-                    if openPage { NSWorkspace.shared.open(URL(string: self.client.base)!) }
+                    if openPage { self.panel.show(instance: session.instance) }
                 case .stopped:
                     self.display(childAlive ? "后台仍在启动，请稍候" : "启动未完成，请查看本机日志", alive: false)
                     self.startItem.isEnabled = !childAlive

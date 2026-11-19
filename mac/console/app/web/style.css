@@ -10,13 +10,14 @@
 .header-actions .text-button{color:#b7cce5}
 .console-home .badge{padding:6px 10px;font-size:11px}
 .core-shell{max-width:1000px;padding:20px}
-.connection-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}
+.connection-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:stretch}
 .connection-grid:has(#sub2api-card[hidden]){grid-template-columns:1fr}
-.connection-grid .card{padding:20px;margin:0}
+.connection-grid .card{display:flex;flex-direction:column;padding:20px;margin:0}
 .connection-grid .card-title{margin-bottom:14px}
 .connection-grid .card strong{font-size:19px;line-height:1.5;letter-spacing:0}
 .connection-grid .card code{margin-top:7px}
 .launch-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:16px}
+.connection-grid .launch-actions{margin-top:auto;padding-top:16px}
 .launch-actions .secondary{padding:9px 13px}
 .api-status{display:flex;align-items:center;gap:10px;font-size:12px;margin-top:13px}
 .api-status>span{color:#71849c}

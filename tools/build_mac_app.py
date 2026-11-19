@@ -45,7 +45,7 @@ def main():
     executable.parent.mkdir(mode=0o700)
     try:
         subprocess.run(['/usr/bin/xcrun', 'swiftc', '-swift-version', '5', '-O',
-                        '-framework', 'AppKit', str(ROOT/'mac/menu/LocalAIConsole.swift'),
+                        '-framework', 'AppKit', '-framework', 'WebKit', str(ROOT/'mac/menu/LocalAIConsole.swift'),
                         '-o', str(executable)], check=True)
         info = {'CFBundleIdentifier': 'local.ai.console',
                 'CFBundleName': '本地 AI 控制台', 'CFBundleDisplayName': '本地 AI 控制台',

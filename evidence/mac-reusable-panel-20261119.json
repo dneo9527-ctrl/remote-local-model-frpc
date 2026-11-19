@@ -1,0 +1,54 @@
+{
+  "date": "2026-11-19",
+  "version": "0.2.0-preview.4",
+  "scope": "Aligned home cards and a reusable native console panel",
+  "card_layout": {
+    "desktop_equal_height_px": [
+      272,
+      272
+    ],
+    "desktop_action_tops_px": [
+      268,
+      268
+    ],
+    "desktop_details_tops_px": [
+      336.5,
+      336.5
+    ],
+    "mobile_600px_single_column": true,
+    "mobile_horizontal_overflow": false
+  },
+  "panel": {
+    "implementation": "Retained NSWindow with nonpersistent WKWebView at the verified loopback console",
+    "close_hides_window": true,
+    "backend_and_visitor_survive_window_close": true,
+    "same_window_and_process_reused": true,
+    "expanded_details_state_preserved": true,
+    "chrome_tabs_before": 1,
+    "chrome_tabs_after": 1,
+    "new_browser_pages_opened": false,
+    "local_blank_target_links_use_same_panel": true,
+    "reload_only_new_backend_instance_or_failed_load": true
+  },
+  "validation": {
+    "swift_compile": true,
+    "ad_hoc_signature": true,
+    "menu_lifecycle_isolated_tests_passed": 8,
+    "independent_code_review": true,
+    "actual_native_app_menu_all_quit_clicked": true,
+    "all_four_local_ports_closed_after_native_quit": true,
+    "menu_and_backend_exited_after_native_quit": true,
+    "shutdown_instance_receipt_matches": true,
+    "reopen_connections_initially_off": true,
+    "single_sub2api_visitor_restored_after_validation": true,
+    "ollama_remains_paused": true,
+    "private_config_key_hashes_unchanged": true
+  },
+  "unverified": [
+    "Status-item menu direct mouse click; native application-menu All Quit was tested",
+    "Actual chat text draft preservation; expanded details DOM state was tested",
+    "Windows API health/models/Responses and Codex App conversation not repeated in this UI update"
+  ],
+  "windows_changed": false,
+  "release_created": false
+}
