@@ -115,6 +115,9 @@ final class ConsolePanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUI
         return false
     }
 
+    func windowDidMiniaturize(_ notification: Notification) { visibilityChanged?() }
+    func windowDidDeminiaturize(_ notification: Notification) { visibilityChanged?() }
+
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         guard let url = action.request.url else { decisionHandler(.cancel); return }
@@ -314,6 +317,13 @@ final class ConsoleMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                     keyEquivalent: "w"))
         fileItem.submenu = fileMenu
         main.addItem(fileItem)
+        let windowItem = NSMenuItem(title: "窗口", action: nil, keyEquivalent: "")
+        let windowMenu = NSMenu(title: "窗口")
+        windowMenu.addItem(NSMenuItem(title: "最小化", action: #selector(NSWindow.performMiniaturize(_:)),
+                                      keyEquivalent: "m"))
+        windowItem.submenu = windowMenu
+        main.addItem(windowItem)
+        NSApp.windowsMenu = windowMenu
         NSApp.mainMenu = main
         timer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in self?.refresh() }
         start(openPage: true)
@@ -342,7 +352,8 @@ final class ConsoleMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                    "status_item_visible": statusItem.isVisible,
                                    "icon_loaded": statusItem.button?.image != nil,
                                    "console_window_number": panel.window?.windowNumber ?? 0,
-                                   "console_window_visible": panel.window?.isVisible ?? false]
+                                   "console_window_visible": panel.window?.isVisible ?? false,
+                                   "console_window_minimized": panel.window?.isMiniaturized ?? false]
         let path = URL(fileURLWithPath: settings.runtime).appendingPathComponent("data/menu-state.json")
         if let data = try? JSONSerialization.data(withJSONObject: record) {
             try? data.write(to: path, options: .atomic)
