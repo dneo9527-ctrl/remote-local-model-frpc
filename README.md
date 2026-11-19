@@ -2,7 +2,7 @@
 
 **Windows 运行模型，Mac 连接与聊天。** 两端共用一个仓库和版本渠道，实际节点配置与密钥各自保存在本机。
 
-Mac 首页提供模型连接、VPS 线路、Cherry Studio 和网页聊天；配置过 Sub2API 时显示独立连接卡片及 CC Switch 入口。原生 Mac App 提供菜单栏运行图标、打开页面与退出后台。更新与日志折叠到管理入口。Codex 供应商和认证由 CC Switch 管理。
+Mac 首页提供模型连接、VPS 线路、Cherry Studio 和网页聊天；配置过 Sub2API 时显示独立连接卡片及 CC Switch 入口。原生 Mac App 提供菜单栏运行图标、可复用的应用窗口、⌘W 关闭、⌘M 最小化与全部退出。更新与日志折叠到管理入口。Codex 供应商和认证由 CC Switch 管理。
 
 | 组件 | 源码 | 当前范围 |
 | --- | --- | --- |
@@ -15,7 +15,7 @@ Mac 首页提供模型连接、VPS 线路、Cherry Studio 和网页聊天；配�
 
 ![Windows 原生 WPF 的 CI 离线预览，非用户电脑实拍](docs/screenshots/windows-ci-offline-preview.png)
 
-[操作步骤](docs/操作步骤.md) · [双端维护与更新](docs/维护与更新.md) · [验收状态](docs/验收.md) · [GitHub 发布](https://github.com/dneo9527-ctrl/remote-local-model-frpc/releases)
+[统一使用与维护](docs/统一使用与维护.md) · [操作步骤](docs/操作步骤.md) · [双端维护与更新](docs/维护与更新.md) · [验收状态](docs/验收.md) · [GitHub 发布](https://github.com/dneo9527-ctrl/remote-local-model-frpc/releases)
 
 Sub2API 独立扩展的 Mac 现场结果与待办见 [Mac Sub2API 交接](docs/MAC_SUB2API_HANDOFF.md)。该连接与已验收的 Ollama 连接分别管理。
 
