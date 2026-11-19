@@ -21,6 +21,43 @@ enum ConsoleState {
     case stopped, running(LocalSession), unavailable
 }
 
+// The app's server → computer mark, simplified for the 22-point menu bar.
+// Template rendering lets macOS choose white/black for the current appearance.
+func connectionMenuImage() -> NSImage {
+    let image = NSImage(size: NSSize(width: 22, height: 18), flipped: false) { _ in
+        NSColor.black.setStroke()
+        NSColor.black.setFill()
+        func line(_ points: [NSPoint], width: CGFloat = 1.45) {
+            let path = NSBezierPath()
+            path.move(to: points[0])
+            points.dropFirst().forEach { path.line(to: $0) }
+            path.lineWidth = width
+            path.lineCapStyle = .round
+            path.lineJoinStyle = .round
+            path.stroke()
+        }
+        let server = NSBezierPath(roundedRect: NSRect(x: 1.1, y: 2.2, width: 5.7, height: 13.4),
+                                  xRadius: 1.2, yRadius: 1.2)
+        server.lineWidth = 1.35
+        server.stroke()
+        line([NSPoint(x: 2.8, y: 12.4), NSPoint(x: 5.1, y: 12.4)], width: 1)
+        line([NSPoint(x: 2.8, y: 10.2), NSPoint(x: 5.1, y: 10.2)], width: 1)
+        NSBezierPath(ovalIn: NSRect(x: 3.25, y: 4.5, width: 1.3, height: 1.3)).fill()
+        let screen = NSBezierPath(roundedRect: NSRect(x: 12.8, y: 5.5, width: 8, height: 7.8),
+                                  xRadius: 1, yRadius: 1)
+        screen.lineWidth = 1.45
+        screen.stroke()
+        line([NSPoint(x: 16.8, y: 5.1), NSPoint(x: 16.8, y: 2.6)])
+        line([NSPoint(x: 12, y: 2.6), NSPoint(x: 21.1, y: 2.6)])
+        line([NSPoint(x: 8.3, y: 9), NSPoint(x: 13.9, y: 9)])
+        line([NSPoint(x: 11.7, y: 11.1), NSPoint(x: 13.9, y: 9), NSPoint(x: 11.7, y: 6.9)])
+        return true
+    }
+    image.isTemplate = true
+    image.accessibilityDescription = "本地 AI 控制台：服务器连接电脑"
+    return image
+}
+
 final class LocalClient: NSObject, URLSessionTaskDelegate {
     let settings: MenuSettings
     var base: String { "http://127.0.0.1:\(settings.port)" }
@@ -144,8 +181,7 @@ final class ConsoleMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
         DistributedNotificationCenter.default().addObserver(self, selector: #selector(reopenNotice(_:)),
             name: NSNotification.Name("local.ai.console.open"), object: settings.runtime)
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "desktopcomputer", accessibilityDescription: "本地 AI 控制台")
-        statusItem.button?.image?.isTemplate = true
+        statusItem.button?.image = connectionMenuImage()
         statusItem.button?.setAccessibilityLabel("本地 AI 控制台")
         let menu = NSMenu()
         menu.autoenablesItems = false

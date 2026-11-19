@@ -1,5 +1,11 @@
 # Mac Sub2API 连接与 CC Switch 交接
 
+## 当前菜单栏图标（2026-11-19）
+
+按用户提供的蓝色应用图标，将菜单栏改为同款“服务器 → 电脑”的 22×18 点单色矢量图，使用 macOS template 自动适配浅色/深色菜单栏；蓝色 App 图标保留。已备份并替换原本机 App，重开后核对签名、安装文件、菜单图标加载/可见状态和后台归属，恢复原已开启的单一 Sub2API visitor，Ollama 继续暂停。私人配置和 Key 文件摘要未变，无新增自启服务。此项为 preview.4 本机外观更新，未创建 Release。
+
+已检查放大的浅色/深色图形，并完成独立代码复核。当前 UI 工具仍无法附着无窗口菜单应用，直接点按原生菜单未验证；不把 AppKit 状态当作实际点按。**全部退出**仍按下文规则关闭所有本机连接。本轮未重做远端 API 或 Codex 对话验收，Windows provider 阻塞保留。脱敏证据：`evidence/mac-menu-brand-20261119.json`。
+
 ## 当前联调：Mac 已就绪，等待 Windows provider（2026-11-19 01:12 +08:00）
 
 用户确认服务器开启并要求继续，已恢复远端验收。Mac 已通过当前控制台开启原 `private-stcp`，复用原配置和端口：01:11:51 frps 登录成功、visitor 监听成功；01:12:12 `/health` 连接重置，对应新日志为 `custom listener for [sub2api_ke] doesn't exist`。尚未进入 Key、models 和 Responses 请求，CC Switch 也尚未切换到 Windows Sub2API。

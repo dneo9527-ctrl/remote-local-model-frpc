@@ -1,0 +1,28 @@
+{
+  "date": "2026-11-19",
+  "version": "0.2.0-preview.4",
+  "scope": "Menu icon uses the existing server-to-computer App mark as native 22x18 point monochrome template",
+  "changes": {
+    "menu_icon": "AppKit vector; template tint follows macOS appearance",
+    "original_blue_app_icon_retained": true,
+    "all_quit_semantics_retained": true,
+    "new_startup_services": false
+  },
+  "verification": {
+    "swift_compile": true,
+    "ad_hoc_signature": true,
+    "light_and_dark_render_inspected": true,
+    "installed_binary_matches_candidate": true,
+    "appkit_status_item_visible": true,
+    "icon_loaded": true,
+    "menu_backend_parentage_verified": true,
+    "existing_sub2api_visitor_restored_once": true,
+    "ollama_still_paused": true,
+    "protected_config_and_key_files_unchanged": true,
+    "read_only_local_review": "No blocking issues",
+    "direct_native_menu_click": "unverified: current UI tool cannot attach to the windowless accessory app"
+  },
+  "remote_api_requests_this_change": false,
+  "remote_acceptance": "Last health attempt still reported missing sub2api_ke; no new health/models/Responses or Codex App test in this icon change",
+  "release_created": false
+}
