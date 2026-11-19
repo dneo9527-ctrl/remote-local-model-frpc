@@ -1,0 +1,17 @@
+{
+  "date": "2026-11-19",
+  "connection_details_default_open": true,
+  "management_default_in_source": "collapsed; current user-expanded state preserved",
+  "native_shortcut": "Command+W via File/Close Window responder chain",
+  "actual_keyboard_test": {
+    "window_hidden": true,
+    "backend_preserved": true,
+    "single_sub2api_visitor_preserved": true,
+    "same_window_and_process_on_reopen": true
+  },
+  "swift_compile_and_signature_passed": true,
+  "independent_review_passed": true,
+  "private_files_unchanged": true,
+  "remote_api_requests": false,
+  "release_created": false
+}

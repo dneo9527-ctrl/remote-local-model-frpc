@@ -307,6 +307,13 @@ final class ConsoleMenu: NSObject, NSApplicationDelegate, NSMenuDelegate {
         appMenu.addItem(mainQuitItem)
         appItem.submenu = appMenu
         main.addItem(appItem)
+        let fileItem = NSMenuItem(title: "文件", action: nil, keyEquivalent: "")
+        let fileMenu = NSMenu(title: "文件")
+        // Use the responder chain so ⌘W closes only the active console window.
+        fileMenu.addItem(NSMenuItem(title: "关闭窗口", action: #selector(NSWindow.performClose(_:)),
+                                    keyEquivalent: "w"))
+        fileItem.submenu = fileMenu
+        main.addItem(fileItem)
         NSApp.mainMenu = main
         timer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in self?.refresh() }
         start(openPage: true)
