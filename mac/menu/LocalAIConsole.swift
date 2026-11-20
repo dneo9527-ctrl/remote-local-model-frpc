@@ -196,6 +196,35 @@ final class ConsolePanel: NSObject, NSWindowDelegate, WKNavigationDelegate, WKUI
         nil  // Local target=_blank links are handled above in the same panel.
     }
 
+    func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+        guard let origin = frame.request.url, isLocalPage(origin), page(for: webView) != nil,
+              let panel = window else { completionHandler(false); return }
+        // WKWebView does not supply a browser confirmation UI by itself. Keep
+        // JavaScript paused until this native sheet receives the user's answer.
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "请确认操作"
+        alert.informativeText = message
+        alert.addButton(withTitle: "继续")
+        alert.addButton(withTitle: "取消").keyEquivalent = "\u{1b}"
+        alert.beginSheetModal(for: panel) { response in
+            completionHandler(response == .alertFirstButtonReturn)
+        }
+    }
+
+    func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
+        guard let origin = frame.request.url, isLocalPage(origin), page(for: webView) != nil,
+              let panel = window else { completionHandler(); return }
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "本地 AI 控制台"
+        alert.informativeText = message
+        alert.addButton(withTitle: "好")
+        alert.beginSheetModal(for: panel) { _ in completionHandler() }
+    }
+
     func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,
                  initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping ([URL]?) -> Void) {
         let picker = NSOpenPanel()

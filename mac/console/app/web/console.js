@@ -10,6 +10,20 @@ let routesData = {items: [], selected: ''};
 let routesBusy = false;
 let routesSequence = 0;
 let editingRoute = null;
+let selectedRouteId = '';
+let templateRoute = null;
+let copyingRoute = false;
+let routeBaseline = '';
+const nodeCache = {shared: {items: [], current: {}}};
+const nodeChecks = {shared: {}};
+const checkingNodes = new Set();
+const nodeLocations = new Map();
+const locatingNodes = new Map();
+let routeLocationTimer;
+let routeLocationVersion = 0;
+let routeLocationHost = '';
+let routeLocationState = 'unknown';
+let routeSavePending = false;
 
 const $ = id => document.getElementById(id);
 
@@ -18,61 +32,206 @@ function say(text, error = false) {
   $('message').classList.toggle('error', error);
 }
 
-async function jsonRequest(path, payload) {
+async function jsonRequest(path, payload, signal) {
   const options = payload === undefined ? {} : {
     method: 'POST',
     headers: {'Content-Type': 'application/json', 'X-Local-CSRF': csrf},
     body: JSON.stringify(payload)
   };
+  if (signal) options.signal = signal;
   const response = await fetch(path, options);
   const data = await response.json();
   if (!response.ok) throw Error(data.error || '操作失败');
   return data;
 }
 
-function routeName(routes, id, fallback) {
-  return (routes || []).find(route => route.id === id)?.name || fallback;
+function nodeEndpoint(item) {
+  if (!item.server_addr) return item.mode === 'direct' ? '直连配置' : '地址未配置';
+  const host = item.server_addr.includes(':') ? `[${item.server_addr}]` : item.server_addr;
+  return `${host}:${item.server_port}`;
 }
 
-function routeSelection(id, routes, selected, fallback) {
-  const select = $(id);
-  const multiple = routes?.length > 1;
-  const name = $(`${id}-name`);
-  select.hidden = !multiple;
-  $(id === 'model-route' ? 'change-route' : 'change-sub2api-route').hidden = !multiple;
-  name.hidden = multiple;
-  name.textContent = `使用中：${routeName(routes, selected, '未配置')}`;
-  $(`${id}-state`).hidden = !multiple;
-  $(`${id}-hint`).hidden = !multiple;
-  if (multiple && document.activeElement === select) return;
-  const pending = select.dataset.appliedRoute === (selected || '') ? select.value : '';
-  select.replaceChildren();
-  for (const route of routes || []) {
-    const option = document.createElement('option');
-    option.value = route.id;
-    option.textContent = route.name;
-    select.append(option);
-  }
-  if (!select.options.length) {
-    const option = document.createElement('option');
-    option.value = '';
-    option.textContent = fallback;
-    select.append(option);
-  }
-  const values = Array.from(select.options, option => option.value);
-  select.value = pending && values.includes(pending) ? pending : selected || '';
-  select.dataset.appliedRoute = selected || '';
+function nodeRegion(item) {
+  const code = /^[A-Z]{2}$/.test(item.country || '') ? item.country : '';
+  const flag = code ? String.fromCodePoint(...[...code].map(c => 0x1f1e6 + c.charCodeAt(0) - 65)) : '';
+  let region = '';
+  try { region = code ? new Intl.DisplayNames(['zh-CN'], {type: 'region'}).of(code) : ''; } catch (_) { region = code; }
+  return [flag, ...new Set([region, item.city].filter(Boolean))].filter(Boolean).join(' ');
 }
 
-function renderRouteState(selectId, outputId, routes, current) {
-  const selected = $(selectId).value;
-  const currentName = routeName(routes, current, '未配置');
-  const pending = !!selected && selected !== current;
-  $(outputId).textContent = pending
-    ? `使用中：${currentName}；待应用：${routeName(routes, selected, selected)}`
-    : `使用中：${currentName}`;
-  $(outputId).classList.toggle('pending', pending);
-  return pending;
+function publicIP(host) {
+  if (/^\d+(?:\.\d+){3}$/.test(host)) {
+    const octets = host.split('.').map(Number);
+    if (octets.some(value => value > 255)) return false;
+    const [a, b, c] = octets;
+    return a > 0 && a < 224 && ![10, 127].includes(a) && !(a === 169 && b === 254)
+      && !(a === 172 && b >= 16 && b <= 31) && !(a === 192 && b === 168)
+      && !(a === 100 && b >= 64 && b <= 127) && !(a === 192 && b === 0 && c === 0)
+      && !(a === 192 && b === 0 && c === 2) && !(a === 198 && [18, 19].includes(b))
+      && !(a === 198 && b === 51 && c === 100)
+      && !(a === 203 && b === 0 && c === 113);
+  }
+  if (!/^[23][\da-f:]+$/i.test(host) || /^2001:db8(?::|$)/i.test(host)) return false;
+  try { return new URL(`http://[${host}]/`).hostname.startsWith('['); } catch (_) { return false; }
+}
+
+function locationFields(result) {
+  const country = /^[A-Z]{2}$/.test(result?.country || '') ? result.country : '';
+  if (country && !Array.from($('route-country').options).some(option => option.value === country)) {
+    const option = document.createElement('option');option.value = country;option.textContent = country;$('route-country').append(option);
+  }
+  $('route-country').value = country;
+  $('route-city').value = result?.city || '';
+}
+
+function renderLocation() {
+  const place = nodeRegion({country: $('route-country').value, city: $('route-city').value});
+  $('route-location').textContent = routeLocationState === 'loading' ? '识别中…' : place || '未识别';
+  $('route-locate').disabled = routesBusy || busy || routeSavePending || routeLocationState === 'loading'
+    || !$('route-server').value.trim();
+}
+
+function updateEditorLocation(result) {
+  const wasClean = routeSignature() === routeBaseline;
+  routeLocationState = result?.state || 'unknown';
+  locationFields(result?.state === 'ok' ? result : {});
+  renderLocation();
+  if (wasClean) routeBaseline = routeSignature();
+}
+
+async function locateEditor(force = false, allowDomain = false) {
+  const host = $('route-server').value.trim();
+  const version = routeLocationVersion;
+  if (!host || (!force && !allowDomain && !publicIP(host))) return;
+  routeLocationState = 'loading';renderLocation();
+  let request = !force && nodeLocations.has(host) ? Promise.resolve(nodeLocations.get(host)) : locatingNodes.get(host);
+  if (!request) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+    request = jsonRequest('/api/vps-nodes', {action: 'location', server_addr: host}, controller.signal)
+      .catch(() => ({state: 'unknown', country: '', city: ''})).finally(() => clearTimeout(timeout));
+    locatingNodes.set(host, request);
+  }
+  const result = await request;
+  nodeLocations.set(host, result);
+  if (locatingNodes.get(host) === request) locatingNodes.delete(host);
+  if (version === routeLocationVersion && $('route-manager').open
+      && $('route-server').value.trim() === host) updateEditorLocation(result);
+}
+
+function scheduleLocation() {
+  clearTimeout(routeLocationTimer);
+  routeLocationTimer = setTimeout(() => locateEditor(), 250);
+}
+
+function routeAddressChanged() {
+  clearTimeout(routeLocationTimer);
+  const host = $('route-server').value.trim();
+  if (host !== routeLocationHost) {
+    ++routeLocationVersion;routeLocationHost = host;routeLocationState = 'unknown';locationFields({});renderLocation();
+  }
+  routeManagerControls();
+}
+
+function nodeStatus(item) {
+  return item.pending ? '待应用' : (item.active_services || []).length > 1 ? '两条连接使用中'
+    : item.active_services?.[0] === 'ollama' ? '模型使用中' : item.active_services?.[0] === 'sub2api' ? 'Sub2 使用中' : '备用';
+}
+
+function networkText(result) {
+  if (!result) return '未检测';
+  const describe = (name, record) => {
+    if (!record) return `${name} 未检测`;
+    return ['ok', 'success'].includes(record.state)
+      ? `${name} ${Number.isFinite(record.latency_ms) ? Math.round(record.latency_ms) + ' ms' : '可达'}`
+      : `${name} ${record.state === 'unavailable' || record.state === 'unsupported' ? '不可用' : record.state === 'timeout' ? '超时' : '不通'}`;
+  };
+  const measured = Date.parse(result.checked_at);
+  const timing = Number.isFinite(measured) ? Date.now() - measured > 300000 ? ' · 记录过期'
+    : ` · ${new Date(measured).toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit'})} 检测` : '';
+  return `${describe('Ping', result.ping)} · ${describe('TCP', result.tcp)}${timing}`;
+}
+
+function currentNodeCheck(service, item) {
+  const cached = nodeChecks[service][item.id];
+  return cached?.target === nodeEndpoint(item) ? cached.result : item.connectivity;
+}
+
+function nodeButton(label, action, service, item) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'text-button';
+  button.textContent = label;
+  button.dataset.nodeAction = action;
+  button.dataset.nodeId = item.id;
+  button.dataset.service = service;
+  button.onclick = () => action === 'use' ? applyNode(service, item)
+    : action === 'edit' ? openRouteManager(service, item.id)
+      : action === 'check' ? checkNode(service, item) : copyNodeIP(item);
+  return button;
+}
+
+function renderHomeNodes(service) {
+  const container = $('vps-nodes');
+  const data = nodeCache[service];
+  container.replaceChildren();
+  for (const item of data.items || []) {
+    const row = document.createElement('div');
+    row.className = `home-node${item.active ? ' active' : ''}`;
+    row.dataset.nodeId = item.id;
+    const info = document.createElement('div');
+    info.className = 'node-info';
+    const heading = document.createElement('div');
+    heading.className = 'node-name-line';
+    const name = document.createElement('b');
+    name.textContent = item.name;
+    const status = document.createElement('span');
+    status.className = `node-badge${item.pending ? ' pending' : item.active ? ' current' : ''}`;
+    status.textContent = nodeStatus(item);
+    heading.append(name, status);
+    const address = document.createElement('span');
+    address.className = 'node-address';
+    address.textContent = [nodeEndpoint(item), nodeRegion(item)].filter(Boolean).join(' · ');
+    info.append(heading, address);
+    const actions = document.createElement('div');
+    actions.className = 'home-node-actions';
+    actions.append(nodeButton(item.pending ? '应用' : item.active_services?.length > 1 ? '已使用' : '使用', 'use', service, item),
+      nodeButton('编辑', 'edit', service, item), nodeButton('检测', 'check', service, item),
+      nodeButton('复制 IP', 'copy-ip', service, item));
+    const measured = currentNodeCheck(service, item);
+    row.append(info, actions);
+    if (measured || checkingNodes.has(`${service}:${item.id}`)) {
+      const result = document.createElement('span');
+      result.className = 'node-network';
+      result.textContent = checkingNodes.has(`${service}:${item.id}`) ? '检测中…' : networkText(measured);
+      row.append(result);
+    }
+    container.append(row);
+  }
+  if (!data.items?.length) {
+    const empty = document.createElement('button');
+    empty.className = 'node-empty';
+    empty.type = 'button';
+    empty.textContent = data.error || '＋ 添加 VPS 节点';
+    empty.onclick = () => openRouteManager(service);
+    container.append(empty);
+  }
+  renderRouteControls();
+}
+
+async function refreshNodes() {
+  try {
+    const data = await jsonRequest('/api/vps-nodes');
+    nodeCache.shared = {...data, items: Array.isArray(data.items) ? data.items : []};
+  } catch (_) { nodeCache.shared.error = '节点读取失败 · 点击管理'; }
+  const data = nodeCache.shared;
+  for (const service of ['ollama', 'sub2api']) {
+    const current = data.items.find(item => item.id === data.current?.[service]);
+    $(service + '-node').textContent = current ? `当前 VPS · ${current.name} · ${nodeEndpoint(current)}` : '当前 VPS · 未配置或直连';
+  }
+  $('vps-current').textContent = data.split ? '当前使用不同节点；点“使用”统一切换，开关状态不变。'
+    : '两条连接共用 VPS 节点，开关分别控制。';
+  renderHomeNodes('shared');
 }
 
 function checkAge(check) {
@@ -89,20 +248,18 @@ function checkAge(check) {
 function renderRouteControls() {
   if (!state) return;
   const active = Number(state.active_chats) > 0;
-  const ollamaPending = renderRouteState('model-route', 'model-route-state', state.model_routes,
-    state.selected_model_route, '线路');
-  $('change-route').disabled = busy || active || !state.ollama.managed || !ollamaPending;
-  $('model-route').disabled = busy || !state.model_routes?.length;
-  $('ollama-guard').textContent = active
-    ? `当前有 ${state.active_chats} 个网页回答进行中，暂不能关闭连接或切换线路。外部客户端状态无法确认。`
-    : '与 Windows 选择同一 VPS，请在回答结束后切换；外部客户端的生成状态无法确认。';
-  if (state.sub2api) {
-    const pending = renderRouteState('sub2api-route', 'sub2api-route-state', state.routes,
-      state.selected_route, '连接');
-    const external = state.sub2api.ownership === 'external';
-    $('sub2api-route').disabled = busy || external || !state.routes?.length;
-    $('change-sub2api-route').disabled = busy || external || !pending;
-  }
+  $('ollama-guard').hidden = !active;
+  $('ollama-guard').textContent = `有 ${state.active_chats} 个网页回答进行中，结束后可切换节点。`;
+  document.querySelectorAll('[data-node-action]').forEach(button => {
+    const service = button.dataset.service;
+    const item = nodeCache[service].items.find(node => node.id === button.dataset.nodeId);
+    const action = button.dataset.nodeAction;
+    button.disabled = busy || !item || (action === 'use' &&
+      ((item.active_services?.length > 1 && !item.pending) || active || !state.ollama.managed
+        || state.sub2api?.ownership === 'external'))
+      || (action === 'check' && (item.editable === false || checkingNodes.has(`${service}:${item.id}`)))
+      || (action === 'copy-ip' && !item.server_addr);
+  });
 }
 
 function renderSub2API() {
@@ -148,7 +305,6 @@ function renderSub2API() {
     : `${timing} · ${remote.detail || '健康检查记录'}。不代表当前模型调用已通过。`;
   $('sub2api-check').disabled = busy || !service.configured || (!direct && !service.listener);
   $('ccswitch').disabled = busy || !state.apps?.ccswitch;
-  routeSelection('sub2api-route', state.routes, state.selected_route, '当前连接');
 }
 
 function renderState() {
@@ -169,7 +325,6 @@ function renderState() {
     : ollama.ok ? 'ok' : ollama.running ? 'warn' : 'off';
   $('ollama-detail').textContent = unchecked ? '仅本地状态 · API 尚未检查'
     : `${checkAge(ollama) || '上次检查'} · ${ollama.ok ? 'API 响应正常' : ollama.detail || 'API 未通过'}`;
-  routeSelection('model-route', state.model_routes, state.selected_model_route, '当前已配置线路');
   renderSub2API();
   renderRouteControls();
 }
@@ -181,6 +336,7 @@ async function refresh() {
     if (shuttingDown) return false;
     state = latest;
     renderState();
+    await refreshNodes();
     return true;
   } catch (error) {
     say(error.message, true);
@@ -194,7 +350,6 @@ function setBusy(value) {
     element.disabled = element.id === 'quit' ? shuttingDown : busy;
   });
   $('inspector-quit').disabled = shuttingDown;
-  $('routes-quit').disabled = shuttingDown;
   if (!busy) renderState();
 }
 
@@ -204,8 +359,7 @@ async function act(service, action) {
     say('当前网页正在生成回答，暂不能关闭模型连接。', true);
     return;
   }
-  if (service === 'model-route' && (Number(state?.active_chats) > 0 || action === state?.selected_model_route)) return;
-  if (service === 'route' && action === state?.selected_route) return;
+  if (service === 'model-route' && Number(state?.active_chats) > 0) return;
   setBusy(true);
   say('正在处理…');
   try {
@@ -360,67 +514,102 @@ function routesNote(text, error = false) {
 }
 
 function selectedSavedRoute() {
-  return routesData.items.find(item => item.id === $('routes-list').value);
+  return routesData.items.find(item => item.id === selectedRouteId);
+}
+
+function routeSignature() {
+  return JSON.stringify(['route-name', 'route-server', 'route-country', 'route-city', 'route-port',
+    'route-token', 'route-ollama-provider', 'route-ollama-token', 'route-ollama-secret',
+    'route-sub2api-provider', 'route-sub2api-token', 'route-sub2api-secret', 'route-input-mode', 'route-toml'].map(id => $(id).value));
+}
+
+function canLeaveRoute() {
+  return $('route-form').hidden || !routeBaseline || routeSignature() === routeBaseline
+    || window.confirm('当前修改还没有保存，放弃修改？');
 }
 
 function routeManagerControls() {
   const item = selectedSavedRoute();
-  const editable = item?.mode === 'stcp' && item.editable;
-  $('routes-service').disabled = routesBusy;
-  $('routes-refresh').disabled = routesBusy;
-  $('routes-list').disabled = routesBusy || !routesData.items.length;
-  $('route-new').disabled = routesBusy;
-  for (const id of ['route-edit', 'route-duplicate', 'route-copy']) $(id).disabled = routesBusy || !editable;
-  $('route-delete').disabled = routesBusy || !item || item.active;
-  $('route-delete-yes').disabled = routesBusy;
-  $('route-save').disabled = routesBusy;
-  $('route-edit-cancel').disabled = routesBusy;
-  $('route-form').querySelectorAll('input, select, textarea').forEach(field => { field.disabled = routesBusy; });
-  $('routes-quit').disabled = shuttingDown;
+  const locked = routesBusy || busy || routeSavePending;
+  const editable = !!item && item.editable !== false;
+  for (const id of ['routes-refresh', 'route-new', 'route-import']) $(id).disabled = locked;
+  $('routes-list').querySelectorAll('button').forEach(button => { button.disabled = locked; });
+  for (const id of ['route-duplicate', 'route-copy-ollama', 'route-copy-sub2api']) $(id).disabled = locked || !editable;
+  $('route-delete').disabled = locked || !item || item.active;
+  $('route-delete-yes').disabled = locked;
+  for (const id of ['route-save', 'route-save-use', 'route-edit-cancel']) $(id).disabled = locked;
+  const changedTarget = !!item && ($('route-server').value.trim() !== item.server_addr || Number($('route-port').value) !== item.server_port);
+  $('route-check').disabled = locked || !editingRoute || !editable || changedTarget || checkingNodes.has(`${'shared'}:${item.id}`);
+  if (changedTarget) $('route-check-result').textContent = '保存后可检测新地址';
+  $('route-copy-ip').disabled = locked || !$('route-server').value.trim();
+  $('route-form').querySelectorAll('input, select, textarea').forEach(field => { field.disabled = locked; });
+  renderLocation();
 }
 
-function showSavedRoute() {
-  const item = selectedSavedRoute();
-  const security = item?.mode === 'stcp' && item.editable
-    ? ` · TLS ${item.tls === true ? '已开启' : '默认（未声明）'} · 加密 ${item.encryption === true ? '已开启' : '默认（未声明）'}` : '';
-  $('route-delete-confirm').hidden = true;
-  $('route-item-detail').textContent = item
-    ? `${item.active ? '使用中' : '备选'} · ${item.mode === 'stcp' ? 'STCP' : '直连'}${item.server_addr ? ` · ${item.server_addr}:${item.server_port}` : ''}${item.server_name ? ` · ${item.server_name}` : ''}${security}${item.mode !== 'stcp' || !item.editable ? ' · 此方案仅可选择应用，无法编辑或导出' : ''}`
-    : '暂无已保存方案。';
+function renderManagerNodes() {
+  const list = $('routes-list');
+  list.replaceChildren();
+  for (const item of routesData.items) {
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'manager-node';
+    row.dataset.nodeId = item.id;
+    row.setAttribute('role', 'option');
+    row.setAttribute('aria-selected', String(item.id === selectedRouteId));
+    const heading = document.createElement('span');
+    heading.className = 'node-name-line';
+    const name = document.createElement('b');
+    name.textContent = [nodeRegion(item), item.name].filter(Boolean).join(' ');
+    const badge = document.createElement('span');
+    badge.className = `node-badge${item.pending ? ' pending' : item.active ? ' current' : ''}`;
+    badge.textContent = nodeStatus(item);
+    heading.append(name, badge);
+    const address = document.createElement('span');
+    address.className = 'node-address';
+    address.textContent = nodeEndpoint(item);
+    const network = document.createElement('span');
+    network.className = 'node-network';
+    network.textContent = networkText(currentNodeCheck('shared', item));
+    row.append(heading, address, network);
+    row.onclick = () => {
+      if (routesBusy || !canLeaveRoute()) return;
+      selectedRouteId = item.id;
+      editSavedRoute('edit');
+    };
+    list.append(row);
+  }
   routeManagerControls();
 }
 
 function closeRouteEditor() {
+  clearTimeout(routeLocationTimer);
+  ++routeLocationVersion;routeLocationHost = '';routeLocationState = 'unknown';
   editingRoute = null;
+  templateRoute = null;
+  copyingRoute = false;
+  routeBaseline = '';
   $('route-form').reset();
-  $('route-token').value = '';
-  $('route-secret').value = '';
-  $('route-toml').value = '';
-  $('route-file').value = '';
+  for (const id of ['route-token', 'route-ollama-token', 'route-ollama-secret', 'route-sub2api-token', 'route-sub2api-secret', 'route-toml', 'route-file']) $(id).value = '';
   $('route-form').hidden = true;
   $('route-editor-empty').hidden = false;
   $('route-delete-confirm').hidden = true;
+  $('route-advanced').open = false;
 }
 
 async function loadRoutes(preferred) {
   const sequence = ++routesSequence;
-  const service = $('routes-service').value;
+  const service = 'shared';
   routesBusy = true;
   routeManagerControls();
   try {
-    const data = await jsonRequest(`/api/routes?service=${encodeURIComponent(service)}`);
+    const data = await jsonRequest('/api/vps-nodes');
     if (sequence !== routesSequence) return false;
-    routesData = {items: Array.isArray(data.items) ? data.items : [], selected: data.selected};
-    $('routes-list').replaceChildren();
-    for (const item of routesData.items) {
-      const option = document.createElement('option');
-      option.value = item.id;
-      option.textContent = `${item.active ? '使用中 · ' : ''}${item.name}`;
-      $('routes-list').append(option);
-    }
-    $('routes-list').value = routesData.items.some(item => item.id === preferred) ? preferred
+    routesData = {service, ...data, items: Array.isArray(data.items) ? data.items : []};
+    nodeCache[service] = routesData;
+    selectedRouteId = routesData.items.some(item => item.id === preferred) ? preferred
       : routesData.items.some(item => item.id === data.selected) ? data.selected : routesData.items[0]?.id || '';
-    showSavedRoute();
+    editSavedRoute('edit');
+    renderHomeNodes(service);
     return true;
   } catch (error) {
     if (sequence === routesSequence) routesNote(error.message, true);
@@ -433,104 +622,251 @@ async function loadRoutes(preferred) {
   }
 }
 
-async function openRouteManager(service) {
+async function openRouteManager(service, preferred) {
+  if ($('route-manager').open && !canLeaveRoute()) return;
   closeRouteEditor();
-  $('routes-service').value = service;
   routesData = {items: [], selected: ''};
-  $('route-manager').showModal();
-  routesNote('仅管理本机方案，不自动测试或应用。');
-  await loadRoutes();
+  selectedRouteId = '';
+  if (!$('route-manager').open) $('route-manager').showModal();
+  routesNote('选择节点即可编辑');
+  await loadRoutes(preferred);
 }
 
 function routeInputMode() {
   const importing = $('route-input-mode').value === 'import';
   $('route-manual-fields').hidden = importing;
   $('route-import-fields').hidden = !importing;
-  for (const id of ['route-server', 'route-port', 'route-provider']) $(id).required = !importing;
-  $('route-token').required = !importing && !editingRoute;
-  $('route-secret').required = !importing && !editingRoute;
+  $('route-server').required = !importing;
+  $('route-port').required = !importing;
+  const source = selectedSavedRoute();
+  let missingTemplate = false;
+  for (const service of ['ollama', 'sub2api']) {
+    const inherited = ((editingRoute || copyingRoute) && source?.services?.[service]?.configured)
+      || !!nodeCache.shared.templates?.[service]?.provider;
+    $('route-' + service + '-provider').required = !importing && !inherited;
+    $('route-' + service + '-secret').required = !importing && !inherited;
+    missingTemplate ||= !inherited;
+  }
+  $('route-token').required = !importing && !nodeCache.shared.templates?.ollama?.provider && !nodeCache.shared.templates?.sub2api?.provider && !templateRoute && !editingRoute;
   $('route-toml').required = importing;
+  if (importing || missingTemplate) $('route-advanced').open = true;
 }
 
-function editSavedRoute(createNew) {
-  const item = createNew ? null : selectedSavedRoute();
-  if (!createNew && (!item?.editable || item.mode !== 'stcp')) return;
+function editSavedRoute(mode) {
+  const item = selectedSavedRoute();
+  const source = item && item.editable !== false ? item : null;
   closeRouteEditor();
-  editingRoute = item?.id || null;
+  if (mode === 'edit' && !source) {
+    renderManagerNodes();
+    if (!routesData.items.length) editSavedRoute('new');
+    return;
+  }
+  editingRoute = mode === 'edit' ? source.id : null;
+  templateRoute = mode === 'edit' ? null : source?.id || null;
+  copyingRoute = mode === 'copy';
   $('route-form').hidden = false;
   $('route-editor-empty').hidden = true;
-  $('route-editor-title').textContent = item ? item.active ? '编辑使用中方案 · 另存副本' : '编辑线路' : '新增 VPS 线路';
-  $('route-name').value = item?.name || '';
-  $('route-server').value = item?.server_addr || '';
-  $('route-port').value = item?.server_port || '';
-  $('route-provider').value = item?.server_name || '';
-  const sub2api = $('routes-service').value === 'sub2api';
-  $('route-fixed-settings').textContent = `STCP · TLS 与传输加密保持开启 · visitor 固定监听 127.0.0.1:${sub2api ? '18081' : '11436（模型 API 11435 不变）'}`;
+  $('route-editor-title').textContent = mode === 'edit' ? '编辑节点' : mode === 'copy' ? '复制节点' : '新增节点';
+  $('route-item-detail').textContent = mode === 'edit' ? nodeStatus(source) : '未保存';
+  $('route-name').value = mode === 'edit' ? source.name : mode === 'copy' ? `${source?.name || '节点'} 副本` : '';
+  $('route-server').value = mode === 'new' ? '' : source?.server_addr || '';
+  $('route-port').value = (mode === 'new' ? nodeCache.shared.default_server_port
+    || nodeCache.shared.templates?.ollama?.server_port || nodeCache.shared.templates?.sub2api?.server_port : source?.server_port) || '';
+  for (const service of ['ollama', 'sub2api']) {
+    const inherited = (mode === 'new' ? null : source?.services?.[service]) || nodeCache.shared.templates?.[service];
+    $('route-' + service + '-provider').value = inherited?.provider || nodeCache.shared.templates?.[service]?.provider || '';
+    $('route-' + service + '-local').textContent = `本机 ${inherited?.local_port || nodeCache.shared.templates?.[service]?.local_port || (service === 'ollama' ? 11436 : 18081)}`;
+  }
+  routeLocationHost = $('route-server').value.trim();
+  const location = mode === 'new' ? {} : source;
+  locationFields(location);
+  routeLocationState = location?.country || location?.city ? 'ok' : 'unknown';
+  renderLocation();
+  $('route-inherit-note').textContent = '节点共用 · 两条连接配套认证分别保留';
+  $('route-check-result').textContent = mode === 'edit'
+    ? networkText(currentNodeCheck('shared', source)) : '保存后可检测';
   routeInputMode();
-  routeManagerControls();
-  $('route-name').focus();
+  routeBaseline = routeSignature();
+  renderManagerNodes();
+  if (mode !== 'edit') $('route-name').focus();
+  else if (!location?.country && !location?.city) locateEditor(false, true);
 }
 
-async function mutateRoute(action, extra = {}) {
-  if (routesBusy) return;
-  const service = $('routes-service').value;
-  const item = selectedSavedRoute();
-  if (action !== 'save' && !item) return;
-  const sequence = ++routesSequence;
-  routesBusy = true;
+async function applyNode(service, item) {
+  if (busy || !item || (item.active_services?.length > 1 && !item.pending)) return false;
+  if (Number(state?.active_chats) > 0) {
+    say('网页回答正在生成，结束后再切换节点。', true);return false;
+  }
+  const running = state?.ollama.running || state?.sub2api?.running;
+  if (running && !window.confirm(`使用“${item.name}”会同时切换模型与 Sub2API 的 VPS；已开的连接会重连，已关闭的保持关闭。继续？`)) return false;
+  setBusy(true);
   routeManagerControls();
-  routesNote('正在保存本机操作…');
+  say(`正在使用 ${item.name}…`);
+  let success = false;
   try {
-    const data = await jsonRequest('/api/routes', {service, action,
-      ...(action === 'save' ? {} : {id: item.id}), ...extra});
-    // The saved route only becomes a pending selection; this never starts or applies it.
-    await refresh();
-    if (data.saved_id && state) {
-      const select = $(service === 'ollama' ? 'model-route' : 'sub2api-route');
-      if (Array.from(select.options).some(option => option.value === data.saved_id)) {
-        select.value = data.saved_id;
-        renderRouteControls();
-      }
-    }
-    if (sequence !== routesSequence) return;
-    closeRouteEditor();
-    routesBusy = false;
-    if (!await loadRoutes(data.saved_id || item?.id)) return;
-    if (!$('route-manager').open || $('routes-service').value !== service) return;
-    routesNote(action === 'copy' ? 'visitor 配置已复制到本机剪贴板，含隧道凭据，仅传给自己的设备。'
-      : data.saved_id ? `${data.message || '方案已保存'}。尚未应用或验证；关闭本窗后点击“应用${service === 'ollama' ? '线路' : '连接'}”。`
-        : data.message || '操作已完成。');
+    const data = await jsonRequest('/api/vps-nodes', {action: 'apply', id: item.id});
+    if (!shuttingDown) say(data.message);
+    success = true;
   } catch (error) {
-    if (sequence === routesSequence) routesNote(error.message, true);
+    if (!shuttingDown) { say(error.message, true);if ($('route-manager').open) routesNote(error.message, true); }
   } finally {
-    if (sequence === routesSequence) {
-      routesBusy = false;
-      routeManagerControls();
+    setBusy(false);
+    await refresh();
+    if ($('route-manager').open) await loadRoutes(item.id);
+  }
+  return success;
+}
+
+async function checkNode(service, item) {
+  const key = `${service}:${item.id}`;
+  if (busy || checkingNodes.has(key) || item.editable === false) return;
+  const target = nodeEndpoint(item);
+  const locationVersion = routeLocationVersion;
+  checkingNodes.add(key);
+  renderHomeNodes(service);
+  routeManagerControls();
+  if ($('route-manager').open) $('route-check-result').textContent = '检测中…';
+  try {
+    const result = await jsonRequest('/api/vps-nodes', {action: 'check', id: item.id});
+    const current = nodeCache[service].items.find(value => value.id === item.id);
+    if (current && nodeEndpoint(current) === target) {
+      nodeChecks[service][item.id] = {target, result};
+      if (result.location) {
+        nodeLocations.set(current.server_addr, result.location);
+        for (const collection of [nodeCache[service].items, routesData.service === service ? routesData.items : []]) {
+          const saved = collection.find(value => value.id === item.id && nodeEndpoint(value) === target);
+          if (!saved) continue;
+          saved.location = result.location;
+          if (result.location.state === 'ok') Object.assign(saved, {country: result.location.country, city: result.location.city});
+        }
+        if (locationVersion === routeLocationVersion && $('route-manager').open
+            && $('route-server').value.trim() === current.server_addr) updateEditorLocation(result.location);
+      }
+      say(`${item.name} · ${networkText(result)}`);
+    }
+  } catch (error) {
+    say(error.message, true);
+    if ($('route-manager').open) routesNote(error.message, true);
+  } finally {
+    checkingNodes.delete(key);
+    renderHomeNodes(service);
+    if ($('route-manager').open) {
+      renderManagerNodes();
+      if (editingRoute === item.id) {
+        const current = selectedSavedRoute();
+        $('route-check-result').textContent = current ? networkText(currentNodeCheck(service, current)) : '未检测';
+      }
     }
   }
 }
 
-$('manage-model-routes').onclick = event => { event.preventDefault();openRouteManager('ollama'); };
-$('manage-sub2api-routes').onclick = event => { event.preventDefault();openRouteManager('sub2api'); };
-$('routes-close').onclick = () => $('route-manager').close();
-$('route-manager').addEventListener('close', () => {
-  ++routesSequence;
-  routesBusy = false;
-  closeRouteEditor();
-});
-$('routes-service').onchange = () => { closeRouteEditor();loadRoutes(); };
-$('routes-refresh').onclick = () => { closeRouteEditor();loadRoutes($('routes-list').value); };
-$('routes-list').onchange = () => { closeRouteEditor();showSavedRoute(); };
-$('route-new').onclick = () => editSavedRoute(true);
-$('route-edit').onclick = () => editSavedRoute(false);
-$('route-edit-cancel').onclick = closeRouteEditor;
+async function copyNodeIP(item) {
+  const value = item?.server_addr || $('route-server').value.trim();
+  if (!value) return;
+  let copied = false;
+  try { if (navigator.clipboard) { await navigator.clipboard.writeText(value);copied = true; } } catch (_) {}
+  if (!copied) {
+    const input = document.createElement('textarea');
+    input.value = value;input.className = 'clipboard-buffer';document.body.append(input);input.select();
+    try { copied = document.execCommand('copy'); } finally { input.remove(); }
+  }
+  const message = copied ? '节点 IP 已复制' : '复制失败，请从节点 IP 输入框复制';
+  if ($('route-manager').open) routesNote(message, !copied);else say(message, !copied);
+}
+
+async function mutateRoute(action, extra = {}, applyAfter = false) {
+  if (routesBusy) return;
+  const service = 'shared';
+  const item = selectedSavedRoute();
+  if (!['save', 'duplicate'].includes(action) && !item) return;
+  const sequence = ++routesSequence;
+  routesBusy = true;
+  routeManagerControls();
+  routesNote(action === 'copy' ? '正在复制…' : '正在保存…');
+  try {
+    const data = await jsonRequest('/api/vps-nodes', {action,
+      ...(['save', 'duplicate'].includes(action) ? {} : {id: item.id}), ...extra});
+    if (sequence !== routesSequence) return;
+    if (action === 'copy') { routesNote('完整 visitor 已复制，仅私下传给自己的设备。');return; }
+    if (data.saved_id) delete nodeChecks[service][data.saved_id];
+    if (action === 'delete' && item) delete nodeChecks[service][item.id];
+    routeBaseline = '';
+    routesBusy = false;
+    await refresh();
+    if (!await loadRoutes(data.saved_id || item?.id)) return;
+    if (!$('route-manager').open) return;
+    routesNote(action === 'copy' ? '完整 visitor 已复制，仅私下传给自己的设备。'
+      : data.pending ? '已保存。点“保存并使用”应用到当前连接。' : data.message || '已保存');
+    if (applyAfter && data.saved_id) {
+      const saved = routesData.items.find(value => value.id === data.saved_id);
+      if (await applyNode(service, saved)) routesNote('节点已使用');
+    }
+  } catch (error) {
+    if (sequence === routesSequence) routesNote(error.message, true);
+  } finally {
+    routesBusy = false;
+    routeManagerControls();
+  }
+}
+
+async function submitRoute(applyAfter) {
+  if (routesBusy || routeSavePending) return;
+  if (!$('route-form').reportValidity()) return;
+  const version = routeLocationVersion;
+  clearTimeout(routeLocationTimer);
+  routeSavePending = true;routeManagerControls();
+  try {
+    if (['unknown', 'loading'].includes(routeLocationState)) await locateEditor(false, routeLocationState === 'loading');
+  } finally {
+    routeSavePending = false;routeManagerControls();
+  }
+  if (version !== routeLocationVersion || !$('route-manager').open) return;
+  const payload = {name: $('route-name').value.trim()};
+  if (editingRoute) payload.id = editingRoute;
+  else if (copyingRoute && templateRoute) payload.id = templateRoute;
+  payload.fields = {common: {country: $('route-country').value, city: $('route-city').value.trim()}, services: {}};
+  if ($('route-input-mode').value === 'import') payload.visitor_toml = $('route-toml').value;
+  else {
+    Object.assign(payload.fields.common, {server_addr: $('route-server').value.trim(), server_port: Number($('route-port').value), token: $('route-token').value});
+    for (const service of ['ollama', 'sub2api']) {
+      payload.fields.services[service] = {token: $('route-' + service + '-token').value,
+        secret_key: $('route-' + service + '-secret').value};
+      const provider = $('route-' + service + '-provider').value.trim();
+      if (provider) payload.fields.services[service].server_name = provider;
+    }
+  }
+  mutateRoute(copyingRoute && templateRoute ? 'duplicate' : 'save', payload, applyAfter);
+}
+
+$('manage-vps-nodes').onclick = () => openRouteManager('shared');
+$('routes-close').onclick = () => { if (canLeaveRoute()) $('route-manager').close(); };
+$('route-manager').addEventListener('cancel', event => { if (!canLeaveRoute()) event.preventDefault(); });
+$('route-manager').addEventListener('close', () => { ++routesSequence;routesBusy = false;closeRouteEditor(); });
+$('routes-refresh').onclick = () => { if (canLeaveRoute()) loadRoutes(selectedRouteId); };
+$('route-new').onclick = () => { if (canLeaveRoute()) editSavedRoute('new'); };
+$('route-empty-new').onclick = () => editSavedRoute('new');
+$('route-import').onclick = () => {
+  if (!canLeaveRoute()) return;
+  editSavedRoute('new');$('route-input-mode').value = 'import';routeInputMode();routeBaseline = routeSignature();
+};
+$('route-edit-cancel').onclick = () => editSavedRoute('edit');
 $('route-input-mode').onchange = routeInputMode;
-$('route-duplicate').onclick = () => mutateRoute('duplicate');
-$('route-copy').onclick = () => mutateRoute('copy');
+$('route-duplicate').onclick = () => { if (canLeaveRoute()) editSavedRoute('copy'); };
+for (const service of ['ollama', 'sub2api']) $('route-copy-' + service).onclick = () => mutateRoute('copy', {service});
+$('route-check').onclick = () => { const item = selectedSavedRoute();if (item) checkNode('shared', item); };
+$('route-copy-ip').onclick = () => copyNodeIP({server_addr: $('route-server').value.trim()});
+$('route-server').oninput = routeAddressChanged;
+$('route-server').onblur = scheduleLocation;
+$('route-server').onpaste = () => setTimeout(scheduleLocation, 0);
+$('route-locate').onclick = () => locateEditor(true);
+for (const id of ['route-country', 'route-city']) $(id).oninput = () => {
+  ++routeLocationVersion;routeLocationState = 'manual';renderLocation();
+};
+$('route-port').oninput = routeManagerControls;
 $('route-delete').onclick = () => {
   const item = selectedSavedRoute();
   if (!item || item.active || routesBusy) return;
-  $('route-delete-question').textContent = `删除本机方案“${item.name}”？`;
+  $('route-delete-question').textContent = `删除节点“${item.name}”？`;
   $('route-delete-confirm').hidden = false;
 };
 $('route-delete-no').onclick = () => { $('route-delete-confirm').hidden = true; };
@@ -539,30 +875,22 @@ $('route-file').onchange = async () => {
   const file = $('route-file').files[0];
   if (!file) return;
   const sequence = routesSequence;
-  if (file.size > 65536) { routesNote('文件过大，请选择 visitor TOML（最多 64 KB）。', true);return; }
+  if (file.size > 65536) { routesNote('文件过大，请选择 64 KB 以内的 TOML。', true);return; }
   try {
     const content = await file.text();
     if (sequence !== routesSequence || !$('route-manager').open || $('route-file').files[0] !== file) return;
     $('route-toml').value = content;
-    routesNote('已在本机读取文件；保存前不会发送配置。');
-  } catch (_) { routesNote('无法读取文件，请重新选择。', true); }
+    routesNote('配置已读取，点击保存完成导入。');
+  } catch (_) { routesNote('文件读取失败，请重新选择。', true); }
 };
-$('route-form').onsubmit = event => {
-  event.preventDefault();
-  const payload = {name: $('route-name').value.trim()};
-  if (editingRoute) payload.id = editingRoute;
-  if ($('route-input-mode').value === 'import') payload.visitor_toml = $('route-toml').value;
-  else payload.fields = {server_addr: $('route-server').value.trim(), server_port: Number($('route-port').value),
-    server_name: $('route-provider').value.trim(), token: $('route-token').value, secret_key: $('route-secret').value};
-  mutateRoute('save', payload);
-};
+$('route-form').onsubmit = event => { event.preventDefault();submitRoute(false); };
+$('route-save-use').onclick = () => submitRoute(true);
 
 $('ollama-toggle').onclick = () => {
   if (state) act('ollama', state.ollama.running ? 'stop' : 'start');
 };
 $('refresh').onclick = refresh;
 $('cherry').onclick = () => act('app', 'cherry');
-$('change-route').onclick = () => act('model-route', $('model-route').value);
 $('updates').onclick = () => act('update', 'check');
 $('logs').onclick = () => openInspector('logs', 'ollama');
 $('ollama-diagnostics').onclick = () => openInspector('diagnostics', 'ollama');
@@ -576,9 +904,6 @@ $('sub2api-check').onclick = async () => {
   inspectorNote('点击“1 · 检查健康”开始；打开窗口本身未发送远端请求。');
 };
 $('ccswitch').onclick = () => act('app', 'ccswitch');
-$('model-route').onchange = renderRouteControls;
-$('sub2api-route').onchange = renderRouteControls;
-$('change-sub2api-route').onclick = () => act('route', $('sub2api-route').value);
 $('inspector-service').onchange = loadInspector;
 $('inspector-refresh').onclick = loadInspector;
 $('inspector-close').onclick = () => $('inspector').close();
@@ -612,7 +937,6 @@ async function quitAll() {
 }
 $('quit').onclick = quitAll;
 $('inspector-quit').onclick = quitAll;
-$('routes-quit').onclick = quitAll;
 
 (async () => {
   try {

@@ -1,4 +1,4 @@
-"""Private, inert STCP profiles. Saving never changes a live visitor.
+"""Private STCP nodes. Edit a node in place; apply connections explicitly.
 
 The browser receives only public connection metadata. Imports use a deliberate
 FRP subset: unsupported options are refused, never silently dropped or run.
@@ -24,6 +24,7 @@ PARTS = {"ollama": ("ollama_routes", "selected_model_route", 11436),
          "sub2api": ("sub2api_profiles", "selected_route", 18081)}
 IDENTITY = re.compile(r"[A-Za-z0-9_-]{1,100}\Z")
 FIELDS = {"server_addr", "server_port", "server_name", "token", "secret_key"}
+FIELDS |= {"country", "city"}
 
 
 def settings_lock_path(controller):
@@ -226,6 +227,35 @@ def _display_name(value):
         raise UserError("请填写 1 至 80 个字符的线路名称，不含控制字符或模板。") from None
 
 
+def _location(field, value):
+    if not isinstance(value, str):
+        raise UserError("地区格式无效。")
+    value = value.strip()
+    if not value:
+        return ""
+    if field == "country":
+        if not re.fullmatch(r"[A-Za-z]{2}", value):
+            raise UserError("国家请选择两位国家代码。")
+        return value.upper()
+    try:
+        return _literal(value, 80)
+    except (ValueError, UnicodeError):
+        raise UserError("城市名称过长或含无效字符。") from None
+
+
+def _pending(controller, service, identity, document):
+    _, selected_key, port = _parts(service)
+    if identity != controller.config.get(selected_key):
+        return False
+    # The registered node is a saved draft; the applied connection keeps its
+    # own original path until the user explicitly applies this node.
+    try:
+        _, current = _private_file(controller.config.get(service, {}), port)
+        return current != document
+    except UserError:
+        return True
+
+
 def list_routes(controller, service):
     registry, selected_key, port = _parts(service)
     with controller.lock:
@@ -235,6 +265,7 @@ def list_routes(controller, service):
             mode = entry.get("mode", "stcp") if service == "sub2api" else "stcp"
             item = {"id": identity, "name": entry.get("display_name" if service == "sub2api" else "name", identity),
                     "mode": mode, "editable": False, "active": identity == selected,
+                    "country": entry.get("country", ""), "city": entry.get("city", ""), "pending": False,
                     "server_addr": None, "server_port": None, "server_name": None,
                     "tls": None, "encryption": None}
             if mode == "stcp":
@@ -243,14 +274,96 @@ def list_routes(controller, service):
                     source = tomllib.loads(raw.decode("utf-8-sig"))
                     item.update(editable=True, server_addr=document["serverAddr"], server_port=document["serverPort"],
                                 server_name=document["visitors"][0]["serverName"],
+                                pending=_pending(controller, service, identity, document),
                                 tls=source.get("transport", {}).get("tls", {}).get("enable"),
                                 encryption=source["visitors"][0].get("transport", {}).get("useEncryption"))
                     if source.get("log", {}).get("to", "console") != "console":
-                        item["notice"] = "保存副本后日志由控制台接管；原文件保持不变。"
+                        item["notice"] = "应用后日志由控制台接管。"
+                    key = (service, identity, item["server_addr"], item["server_port"])
+                    if key in getattr(controller, "route_checks", {}):
+                        item["connectivity"] = copy.deepcopy(controller.route_checks[key])
+                    location = getattr(controller, "route_locations", {}).get(item["server_addr"])
+                    if location:
+                        item["location"] = copy.deepcopy(location)
+                        if location.get("state") == "ok":
+                            item["country"] = item["country"] or location.get("country", "")
+                            item["city"] = item["city"] or location.get("city", "")
+                    item["location_source"] = ("manual" if entry.get("country") or entry.get("city") else
+                                               location.get("source", "") if location else "")
                 except (UserError, ValueError, UnicodeError, TypeError, KeyError):
                     pass
             items.append(item)
         return {"service": service, "selected": selected, "items": items}
+
+
+def check_route(controller, service, identity):
+    from .route_connectivity import probe_node
+    registry, _, port = _parts(service)
+    with controller.lock:
+        if controller.closing:
+            raise UserError("正在退出，无法检测节点。")
+        profiles = controller.config.get(registry, {})
+        entry = profiles[_identity(identity, profiles)]
+        _, document = _private_file(entry, port)
+        key = (service, identity, document["serverAddr"], document["serverPort"])
+    if not controller.route_check_lock.acquire(blocking=False):
+        raise UserError("已有节点正在检测，请稍后重试。")
+    try:
+        result = probe_node(key[2], key[3])
+        with controller.lock:
+            # Never label a later edit with the earlier endpoint's result.
+            current = controller.config.get(registry, {}).get(identity)
+            if current is not None:
+                _, latest = _private_file(current, port)
+                if (latest["serverAddr"], latest["serverPort"]) == key[2:]:
+                    controller.route_checks = {k: v for k, v in controller.route_checks.items()
+                                               if k[:2] != key[:2]}
+                    controller.route_checks[key] = result
+                    if "location" in result:
+                        _remember_location(controller, key[2], result["location"])
+        return copy.deepcopy(result)
+    finally:
+        controller.route_check_lock.release()
+
+
+def _remember_location(controller, host, result):
+    # Session metadata only: never rewrite the node, private visitor or settings.
+    if not hasattr(controller, "route_locations"):
+        controller.route_locations = {}
+    controller.route_locations.pop(host, None)
+    controller.route_locations[host] = copy.deepcopy(result)
+    while len(controller.route_locations) > 256:
+        controller.route_locations.pop(next(iter(controller.route_locations)))
+
+
+def locate_route(controller, service, data):
+    from .route_connectivity import lookup_location
+    if (set(data) - {"service", "action", "id", "server_addr"} or
+            ("id" in data) == ("server_addr" in data)):
+        raise UserError("地区识别只接受一个已保存节点或 VPS 地址。")
+    registry, _, port = _parts(service)
+    with controller.lock:
+        if controller.closing:
+            raise UserError("正在退出，无法识别节点地区。")
+        if "id" in data:
+            profiles = controller.config.get(registry, {})
+            entry = profiles[_identity(data["id"], profiles)]
+            _, document = _private_file(entry, port)
+            host = document["serverAddr"]
+        else:
+            try:
+                host = _host(data["server_addr"])
+            except (ValueError, TypeError, UnicodeError):
+                raise UserError("请先填写有效的 VPS 地址。") from None
+    if not controller.route_check_lock.acquire(blocking=False):
+        raise UserError("已有节点正在检测，请稍后重试。")
+    try:
+        result = lookup_location(host)
+        with controller.lock:
+            _remember_location(controller, host, result)
+        return copy.deepcopy(result)
+    finally:
+        controller.route_check_lock.release()
 
 
 def _sub2_template(config, entry=None):
@@ -274,10 +387,16 @@ def _managed_directory(controller):
 
 
 def manage_route(controller, data):
-    if not isinstance(data, dict) or set(data) - {"service", "action", "id", "name", "fields", "visitor_toml"}:
+    if isinstance(data, dict) and data.get("action") == "location":
+        return locate_route(controller, data.get("service"), data)
+    if not isinstance(data, dict) or set(data) - {"service", "action", "id", "template_id", "name", "fields", "visitor_toml"}:
         raise UserError("线路请求字段不受支持；未读取或写入指定路径。")
     service, action = data.get("service"), data.get("action")
     registry, selected_key, port = _parts(service)
+    if action == "check":
+        if set(data) - {"service", "action", "id"}:
+            raise UserError("节点检测只接受已保存的节点。")
+        return check_route(controller, service, data.get("id"))
     if action not in ("save", "duplicate", "delete", "copy"):
         raise UserError("不支持的线路操作。")
     with controller.lock, FileLock(settings_lock_path(controller)):
@@ -293,6 +412,10 @@ def manage_route(controller, data):
         profiles = candidate.setdefault(registry, {})
         identity = data.get("id")
         entry = profiles[_identity(identity, profiles)] if identity is not None else None
+        template_id = data.get("template_id")
+        if template_id is not None and (entry is not None or action != "save"):
+            raise UserError("只有新增节点可以引用配套参数。")
+        source_entry = entry or (profiles[_identity(template_id, profiles)] if template_id is not None else None)
         if action != "save" and entry is None:
             raise UserError("请先选择一条线路方案。")
         if action == "delete":
@@ -302,7 +425,7 @@ def manage_route(controller, data):
             message = "已移除线路注册；原私有文件保留。"
             saved_id, created_copy = None, False
         else:
-            if entry is not None and service == "sub2api" and entry.get("mode", "stcp") != "stcp":
+            if source_entry is not None and service == "sub2api" and source_entry.get("mode", "stcp") != "stcp":
                 raise UserError("旧直连方案仅可选择应用，不支持 STCP 编辑或复制。")
             if action == "copy" and sys.platform != "darwin":
                 raise UserError("此操作仅支持本 Mac 的系统剪贴板。")
@@ -314,8 +437,8 @@ def manage_route(controller, data):
                 raise UserError("复制操作仅接受现有线路方案；请用保存操作编辑字段。")
             if imported is not None:
                 document = _parse(imported, port)
-            elif entry is not None:
-                _, document = _private_file(entry, port)
+            elif source_entry is not None:
+                _, document = _private_file(source_entry, port)
             else:
                 document = {"serverAddr": "", "serverPort": 0, "auth": {"method": "token", "token": ""},
                             "log": {"to": "console", "level": "info"},
@@ -345,23 +468,34 @@ def manage_route(controller, data):
                     raise UserError("系统剪贴板写入未完成；未返回私密配置。")
                 return {"message": "完整 visitor 已复制到本机剪贴板，含私密连接凭据；请勿公开分享。"}
             name_field = "display_name" if service == "sub2api" else "name"
-            fallback = (entry.get(name_field, "线路") + " 副本")[:80] if entry else "新线路"
+            fallback = ((entry.get(name_field, "线路") + (" 副本" if action == "duplicate" else ""))[:80]
+                        if entry else "新线路")
             name = _display_name(data.get("name", fallback))
-            created_copy = entry is not None and (action == "duplicate" or identity == candidate.get(selected_key))
+            created_copy = entry is not None and action == "duplicate"
             saved_id = identity if entry is not None and not created_copy else "route-" + uuid.uuid4().hex
-            template = _sub2_template(candidate, entry) if service == "sub2api" else copy.deepcopy(entry or {})
-            path = _managed_directory(controller) / (uuid.uuid4().hex + ".toml")
-            if path.exists():
-                raise UserError("线路保存目标已存在，未覆盖任何文件。")
-            template.update({name_field: name, "visitor_config": str(path)})
+            template = _sub2_template(candidate, source_entry) if service == "sub2api" else copy.deepcopy(source_entry or {})
+            # Renaming/relabelling an existing node changes metadata only.
+            # Keep its original private file and running connection intact.
+            same_document = entry is not None and action == "save" and _private_file(entry, port)[1] == document
+            path = None if same_document else _managed_directory(controller) / (uuid.uuid4().hex + ".toml")
+            if path is not None:
+                if path.exists():
+                    raise UserError("线路保存目标已存在，未覆盖任何文件。")
+                template["visitor_config"] = str(path)
+            template[name_field] = name
+            for field in ("country", "city"):
+                if field in fields:
+                    template[field] = _location(field, fields[field])
             if service == "sub2api":
                 template["mode"] = "stcp"
             profiles[saved_id] = template
-            message = "已保存为新方案，当前连接保持原状；请显式应用。" if created_copy else "线路方案已保存；请按需显式应用。"
+            message = "节点副本已保存。" if created_copy else "节点已保存。"
+            if service == "sub2api" and identity == candidate.get(selected_key) and same_document:
+                candidate["sub2api"].update({k: template[k] for k in (name_field, "country", "city") if k in template})
         backup = controller.runtime / "backups" / ("route-profiles-" + str(time.time_ns()) + ".json")
         try:
             atomic_write(backup, original)
-            if action != "delete":
+            if action != "delete" and path is not None:
                 atomic_write(path, content)
             if controller.config_path.read_bytes() != original:
                 raise UserError("设置已被其他程序修改，保留后续修改；未应用新线路。")
@@ -369,7 +503,7 @@ def manage_route(controller, data):
         except Exception:
             # Remove only our unregistered UUID file, never an original source
             # or a file another settings writer has already registered.
-            if action != "delete":
+            if action != "delete" and path is not None:
                 try:
                     current = json.loads(controller.config_path.read_bytes())
                     registered = any(value.get("visitor_config") == str(path)
@@ -381,4 +515,6 @@ def manage_route(controller, data):
                     pass
             raise
         controller.config = candidate
-        return {"message": message, "saved_id": saved_id, "created_copy": created_copy}
+        pending = bool(action != "delete" and _pending(controller, service, saved_id, document))
+        return {"message": message + (" 连接参数待应用，当前连接未重启。" if pending else ""),
+                "saved_id": saved_id, "created_copy": created_copy, "pending": pending}

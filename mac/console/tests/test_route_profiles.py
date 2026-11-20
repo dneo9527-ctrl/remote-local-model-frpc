@@ -96,18 +96,20 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(results[1]["items"][0]["mode"], "direct")
         self.assertFalse(results[1]["items"][0]["editable"])
 
-    def test_edit_current_always_saves_new_copy_without_live_mutation(self):
+    def test_edit_current_keeps_identity_and_marks_pending_without_live_mutation(self):
         before_settings, before_live = self.config_path.read_bytes(), self.live.read_bytes()
         with patch.object(self.controller, "action", side_effect=AssertionError("must not apply")), \
                 patch.object(self.controller.tunnel, "start", side_effect=AssertionError("must not start")), \
                 patch.object(self.controller.tunnel, "stop", side_effect=AssertionError("must not stop")):
             result = self.save(id="current", name="另一 VPS", fields={"server_addr": "192.0.2.99", "server_port": 7443,
                                                                         "token": "", "secret_key": ""})
-        self.assertTrue(result["created_copy"])
-        self.assertNotEqual(result["saved_id"], "current")
+        self.assertFalse(result["created_copy"])
+        self.assertEqual(result["saved_id"], "current")
+        self.assertTrue(result["pending"])
         self.assertEqual(self.live.read_bytes(), before_live)
         self.assertEqual(self.controller.config["selected_model_route"], "current")
-        self.assertEqual(self.controller.config["ollama_routes"]["current"], self.config["ollama_routes"]["current"])
+        self.assertEqual(len(self.controller.config["ollama_routes"]), 2)
+        self.assertTrue(next(i for i in list_routes(self.controller, "ollama")["items"] if i["id"] == "current")["pending"])
         path = self.registered_file("ollama", result["saved_id"])
         self.assertEqual(path.parent, self.controller.runtime / "config/route-profiles")
         if os.name == "nt":
@@ -142,6 +144,129 @@ class ProfileTests(unittest.TestCase):
         self.assertNotEqual(path, self.other)
         self.assertEqual(tomllib.loads(path.read_text(encoding="utf-8"))["auth"]["token"], "fixture-new-token")
 
+    def test_rename_and_region_only_edit_current_without_duplicate_or_pending(self):
+        live = self.live.read_bytes()
+        result = self.save(id="current", name="东京备用", fields={"country": "jp", "city": "东京"})
+        self.assertEqual(result["saved_id"], "current")
+        self.assertFalse(result["created_copy"])
+        self.assertFalse(result["pending"])
+        self.assertEqual(self.registered_file("ollama", "current"), self.live)
+        self.assertEqual(self.live.read_bytes(), live)
+        self.assertEqual(len(self.controller.config["ollama_routes"]), 2)
+        item = next(i for i in list_routes(self.controller, "ollama")["items"] if i["id"] == "current")
+        self.assertEqual((item["name"], item["country"], item["city"]), ("东京备用", "JP", "东京"))
+        self.assertFalse(item["pending"])
+
+    def test_add_backup_by_only_name_ip_and_existing_template(self):
+        before = self.live.read_bytes()
+        result = self.save(template_id="current", name="备用节点", fields={"server_addr": "192.0.2.52"})
+        self.assertNotEqual(result["saved_id"], "current")
+        saved = tomllib.loads(self.registered_file("ollama", result["saved_id"]).read_text(encoding="utf-8"))
+        self.assertEqual(saved["serverAddr"], "192.0.2.52")
+        self.assertEqual(saved["auth"]["token"], TOKEN)
+        self.assertEqual(saved["visitors"][0]["secretKey"], SECRET)
+        self.assertEqual(self.controller.config["selected_model_route"], "current")
+        self.assertEqual(self.live.read_bytes(), before)
+        self.assertNotIn(TOKEN, json.dumps(result))
+        with self.assertRaises(UserError):
+            self.save(id="current", template_id="other", fields={})
+
+    def test_current_edit_then_apply_same_node_is_not_treated_as_already_applied(self):
+        self.save(id="current", name="同一节点", fields={"server_addr": "192.0.2.55"})
+        calls = []
+        def action(service, operation):
+            calls.append((service, operation))
+        from app.model_routes import switch_route
+        with patch.object(self.controller, "ollama_running", return_value=True), \
+                patch.object(self.controller, "action", side_effect=action):
+            switch_route(self.controller, "current")
+        self.assertEqual(calls, [("ollama", "stop"), ("ollama", "start")])
+        self.assertEqual(tomllib.loads(self.live.read_text(encoding="utf-8"))["serverAddr"], "192.0.2.55")
+        item = next(i for i in list_routes(self.controller, "ollama")["items"] if i["id"] == "current")
+        self.assertFalse(item["pending"])
+        self.assertEqual(len(self.controller.config["ollama_routes"]), 2)
+
+    def test_manual_node_check_caches_only_matching_endpoint_and_get_never_probes(self):
+        result = {"checked_at": "2026-11-20T00:00:00+00:00", "ping": {"state": "failed", "latency_ms": None},
+                  "tcp": {"state": "ok", "latency_ms": 12}}
+        before = self.config_path.read_bytes()
+        with patch("app.route_connectivity.probe_node", return_value=result) as probe:
+            self.assertNotIn("connectivity", list_routes(self.controller, "ollama")["items"][0])
+            probe.assert_not_called()
+            checked = manage_route(self.controller, {"service": "ollama", "action": "check", "id": "current"})
+            self.assertEqual(checked, result)
+            probe.assert_called_once_with("192.0.2.20", 7000)
+            item = list_routes(self.controller, "ollama")["items"][0]
+            self.assertEqual(item["connectivity"], result)
+        self.assertEqual(self.config_path.read_bytes(), before)
+        self.save(id="current", fields={"server_addr": "192.0.2.99"})
+        self.assertNotIn("connectivity", list_routes(self.controller, "ollama")["items"][0])
+        with self.controller.route_check_lock, patch("app.route_connectivity.probe_node") as probe:
+            with self.assertRaises(UserError):
+                manage_route(self.controller, {"service": "ollama", "action": "check", "id": "current"})
+            probe.assert_not_called()
+        for invalid in ({"id": "not-registered"}, {"id": "current", "fields": {"server_addr": "attacker.invalid"}}):
+            with self.assertRaises(UserError):
+                manage_route(self.controller, {"service": "ollama", "action": "check", **invalid})
+
+    def test_invalid_location_does_not_mutate_any_settings(self):
+        before = self.config_path.read_bytes()
+        for fields in ({"country": "Japan"}, {"city": "bad\ncity"}, {"country": 1}):
+            with self.assertRaises(UserError):
+                self.save(id="current", fields=fields)
+        self.assertEqual(self.config_path.read_bytes(), before)
+
+    def test_auto_location_for_saved_and_draft_nodes_is_passive_and_endpoint_bound(self):
+        result = {"state": "ok", "country": "JP", "country_name": "日本", "region": "东京都", "city": "东京",
+                  "source": "ipwho.is", "cached": False, "checked_at": "2026-11-20T00:00:00Z"}
+        before_settings, before_live, before_other = self.config_path.read_bytes(), self.live.read_bytes(), self.other.read_bytes()
+        with patch("app.route_connectivity.lookup_location", return_value=result) as lookup, \
+                patch.object(self.controller.tunnel, "start", side_effect=AssertionError("must not start")), \
+                patch.object(self.controller.tunnel, "stop", side_effect=AssertionError("must not stop")):
+            self.assertNotIn("location", list_routes(self.controller, "ollama")["items"][0])
+            lookup.assert_not_called()
+            located = manage_route(self.controller, {"service": "ollama", "action": "location", "id": "current"})
+            self.assertEqual(located, result)
+            lookup.assert_called_once_with("192.0.2.20")
+            located["city"] = "must not mutate cached location"
+            item = list_routes(self.controller, "ollama")["items"][0]
+            self.assertEqual((item["country"], item["city"], item["location_source"]), ("JP", "东京", "ipwho.is"))
+            self.assertEqual(lookup.call_count, 1)
+            manage_route(self.controller, {"service": "ollama", "action": "location", "server_addr": "192.0.2.99"})
+            self.assertEqual(lookup.call_args.args, ("192.0.2.99",))
+        self.assertEqual(self.config_path.read_bytes(), before_settings)
+        self.assertEqual(self.live.read_bytes(), before_live)
+        self.assertEqual(self.other.read_bytes(), before_other)
+        self.save(id="current", fields={"server_addr": "192.0.2.55"})
+        changed = list_routes(self.controller, "ollama")["items"][0]
+        self.assertNotIn("location", changed)
+        self.assertEqual((changed["country"], changed["city"]), ("", ""))
+
+    def test_check_exposes_auto_location_and_keeps_manual_overrides(self):
+        self.save(id="current", fields={"country": "US", "city": "手工城市"})
+        location = {"state": "ok", "country": "JP", "city": "东京", "source": "ipwho.is"}
+        result = {"ping": {"state": "ok", "latency_ms": 1}, "tcp": {"state": "ok", "latency_ms": 2},
+                  "location": location, "checked_at": "2026-11-20T00:00:00Z"}
+        with patch("app.route_connectivity.probe_node", return_value=result):
+            manage_route(self.controller, {"service": "ollama", "action": "check", "id": "current"})
+        item = list_routes(self.controller, "ollama")["items"][0]
+        self.assertEqual(item["location"], location)
+        self.assertEqual((item["country"], item["city"], item["location_source"]), ("US", "手工城市", "manual"))
+
+    def test_location_action_rejects_ambiguous_inputs_unknown_nodes_and_busy_checks(self):
+        invalid = [{}, {"id": "current", "server_addr": "8.8.8.8"}, {"id": None}, {"id": "unknown"},
+                   {"server_addr": None}, {"server_addr": "https://vps.example"},
+                   {"server_addr": "8.8.8.8", "token": TOKEN}, {"id": "current", "fields": {}}]
+        before = self.config_path.read_bytes()
+        with patch("app.route_connectivity.lookup_location") as lookup:
+            for fields in invalid:
+                with self.subTest(fields=fields), self.assertRaises(UserError):
+                    manage_route(self.controller, {"service": "ollama", "action": "location", **fields})
+            with self.controller.route_check_lock, self.assertRaises(UserError):
+                manage_route(self.controller, {"service": "ollama", "action": "location", "id": "current"})
+            lookup.assert_not_called()
+        self.assertEqual(self.config_path.read_bytes(), before)
+
     def test_registered_log_file_is_editable_but_only_managed_copy_uses_console(self):
         raw = visitor().replace('to = "console"', 'to = "/PRIVATE/existing-project/frpc.log"')
         self.live.write_text(raw, encoding="utf-8")
@@ -151,7 +276,7 @@ class ProfileTests(unittest.TestCase):
         self.assertIn("控制台接管", current["notice"])
         self.assertNotIn("/PRIVATE", json.dumps(current))
         result = self.save(id="current", name="现用线路副本", fields={"server_port": 7443})
-        self.assertTrue(result["created_copy"])
+        self.assertFalse(result["created_copy"])
         document = tomllib.loads(self.registered_file("ollama", result["saved_id"]).read_text(encoding="utf-8"))
         self.assertEqual(document["log"]["to"], "console")
         self.assertEqual(self.live.read_bytes(), before)

@@ -9,10 +9,11 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from app.core import UserError, port_listening
 from app.server import Controller
+from app.route_profiles import manage_route
 
 
 class Sub2ApiTests(unittest.TestCase):
@@ -260,6 +261,210 @@ class Sub2ApiTests(unittest.TestCase):
         stop.assert_not_called()
         self.assertEqual(self.settings.read_bytes(), changed)
         self.assertEqual(self.controller.config['selected_route'], 'windows')
+
+    def fake_tunnel(self, running=False):
+        tunnel = Mock()
+        tunnel.running = running
+        tunnel.stop.side_effect = lambda: setattr(tunnel, 'running', False)
+        tunnel.start.side_effect = lambda: setattr(tunnel, 'running', True)
+        return tunnel
+
+    def test_edit_selected_node_keeps_id_and_applies_pending_config_on_same_id(self):
+        original_visitor = self.visitor.read_bytes()
+        saved = manage_route(self.controller, {
+            'service': 'sub2api', 'action': 'save', 'id': 'windows',
+            'name': 'Edited current node', 'fields': {'server_addr': '192.0.2.77'},
+        })
+        self.assertEqual(saved['saved_id'], 'windows')
+        self.assertFalse(saved['created_copy'])
+        self.assertTrue(saved['pending'])
+        pending = copy.deepcopy(self.controller.config['sub2api_profiles']['windows'])
+        self.assertNotEqual(pending['visitor_config'], str(self.visitor))
+        self.assertEqual(self.controller.config['sub2api']['visitor_config'], str(self.visitor))
+        self.assertEqual(self.visitor.read_bytes(), original_visitor)
+        previous = self.fake_tunnel(running=True)
+        replacement = self.fake_tunnel()
+        self.controller.tunnel = previous
+        with patch('app.server.Tunnel', return_value=replacement) as factory, \
+                patch('app.server.port_listening', return_value=False):
+            self.controller.action('route', 'windows')
+        previous.stop.assert_called_once()
+        replacement.start.assert_called_once()
+        factory.assert_called_once_with(pending, self.controller.runtime)
+        self.assertIs(self.controller.tunnel, replacement)
+        self.assertTrue(replacement.running)
+        self.assertEqual(self.controller.config['selected_route'], 'windows')
+        self.assertEqual(self.controller.config['sub2api'], pending)
+        self.assertEqual(json.loads(self.settings.read_text(encoding='utf-8'))['sub2api'], pending)
+
+    def test_switch_running_connection_restarts_new_node_in_order(self):
+        previous = self.fake_tunnel(running=True)
+        replacement = self.fake_tunnel()
+        calls = Mock()
+        calls.attach_mock(previous.stop, 'old_stop')
+        calls.attach_mock(replacement.start, 'new_start')
+        self.controller.tunnel = previous
+        with patch('app.server.Tunnel', return_value=replacement), \
+                patch('app.server.port_listening', return_value=False):
+            self.controller.action('route', 'next')
+        self.assertEqual([call[0] for call in calls.mock_calls], ['old_stop', 'new_start'])
+        self.assertFalse(previous.running)
+        self.assertTrue(replacement.running)
+        self.assertEqual(self.controller.config['selected_route'], 'next')
+
+    def test_switch_stopped_connection_keeps_replacement_stopped(self):
+        previous, replacement = self.fake_tunnel(), self.fake_tunnel()
+        self.controller.tunnel = previous
+        with patch('app.server.Tunnel', return_value=replacement), \
+                patch('app.server.port_listening', return_value=False):
+            self.controller.action('route', 'next')
+        previous.stop.assert_called_once()
+        replacement.start.assert_not_called()
+        self.assertFalse(replacement.running)
+        self.assertEqual(self.controller.config['selected_route'], 'next')
+
+    def test_metadata_only_selected_node_is_noop_without_connection_restart(self):
+        self.controller.config['sub2api_profiles']['windows'].update(
+            display_name='Renamed', country='JP', city='Tokyo')
+        self.settings.write_text(json.dumps(self.controller.config), encoding='utf-8')
+        previous = self.fake_tunnel(running=True)
+        self.controller.tunnel = previous
+        with patch('app.server.Tunnel') as factory, \
+                patch('app.server.port_listening', return_value=False):
+            self.controller.action('route', 'windows')
+        previous.stop.assert_not_called()
+        previous.start.assert_not_called()
+        factory.assert_not_called()
+        self.assertTrue(previous.running)
+
+    def test_new_connection_start_failure_restores_settings_and_original_connection(self):
+        original_settings = self.settings.read_bytes()
+        original_config = copy.deepcopy(self.controller.config)
+        previous = self.fake_tunnel(running=True)
+        replacement = self.fake_tunnel()
+        replacement.start.side_effect = UserError('fixture new connection failed')
+        self.controller.tunnel = previous
+        with patch('app.server.Tunnel', return_value=replacement), \
+                patch('app.server.port_listening', return_value=False):
+            with self.assertRaisesRegex(UserError, '原连接设置已恢复'):
+                self.controller.action('route', 'next')
+        self.assertEqual(self.settings.read_bytes(), original_settings)
+        self.assertEqual(self.controller.config, original_config)
+        self.assertIs(self.controller.tunnel, previous)
+        previous.stop.assert_called_once()
+        previous.start.assert_called_once()
+        replacement.stop.assert_called_once()
+        self.assertTrue(previous.running)
+        self.assertEqual(self.controller.codex.settings, original_config['sub2api'])
+
+    def test_settings_write_failure_restores_running_original_without_creating_tunnel(self):
+        before = self.settings.read_bytes()
+        previous = self.fake_tunnel(running=True)
+        self.controller.tunnel = previous
+        with patch('app.server.write_json', side_effect=OSError('fixture write failure')), \
+                patch('app.server.Tunnel') as factory, \
+                patch('app.server.port_listening', return_value=False):
+            with self.assertRaisesRegex(UserError, '原连接设置已恢复'):
+                self.controller.action('route', 'next')
+        factory.assert_not_called()
+        self.assertEqual(self.settings.read_bytes(), before)
+        self.assertIs(self.controller.tunnel, previous)
+        self.assertTrue(previous.running)
+        previous.start.assert_called_once()
+
+    def test_external_settings_edit_during_stop_is_not_overwritten_or_restarted(self):
+        later = dict(self.config, unrelated_setting={'preserve': 'later during stop'})
+        later_bytes = (json.dumps(later) + '\n').encode('utf-8')
+        previous = self.fake_tunnel(running=True)
+        def stop_and_edit():
+            previous.running = False
+            self.settings.write_bytes(later_bytes)
+        previous.stop.side_effect = stop_and_edit
+        self.controller.tunnel = previous
+        with patch('app.server.Tunnel') as factory, \
+                patch('app.server.port_listening', return_value=False):
+            with self.assertRaisesRegex(UserError, '其他程序'):
+                self.controller.action('route', 'next')
+        factory.assert_not_called()
+        self.assertEqual(self.settings.read_bytes(), later_bytes)
+        self.assertEqual(self.controller.config['selected_route'], 'windows')
+        self.assertIs(self.controller.tunnel, previous)
+        previous.start.assert_not_called()
+
+    def test_external_settings_edit_after_new_start_failure_is_preserved(self):
+        later = dict(self.config, unrelated_setting={'preserve': 'later after start'})
+        later_bytes = (json.dumps(later) + '\n').encode('utf-8')
+        previous = self.fake_tunnel(running=True)
+        replacement = self.fake_tunnel()
+        def edit_and_fail():
+            self.settings.write_bytes(later_bytes)
+            raise UserError('fixture failed after another editor saved')
+        replacement.start.side_effect = edit_and_fail
+        self.controller.tunnel = previous
+        with patch('app.server.Tunnel', return_value=replacement), \
+                patch('app.server.port_listening', return_value=False):
+            with self.assertRaisesRegex(UserError, '其他程序'):
+                self.controller.action('route', 'next')
+        self.assertEqual(self.settings.read_bytes(), later_bytes)
+        self.assertEqual(self.controller.config, self.config)
+        self.assertIs(self.controller.tunnel, previous)
+        self.assertTrue(self.controller.connection_settings_conflicted)
+        previous.start.assert_not_called()
+        replacement.stop.assert_called_once()
+
+    def test_invalid_json_after_start_failure_is_preserved_and_stop_still_works(self):
+        broken = b'{"concurrent-editor": '
+        original_config = copy.deepcopy(self.controller.config)
+        previous = self.fake_tunnel(running=True)
+        replacement = self.fake_tunnel()
+        def corrupt_and_fail():
+            self.settings.write_bytes(broken)
+            raise UserError('fixture new start failed during partial external write')
+        replacement.start.side_effect = corrupt_and_fail
+        self.controller.tunnel = previous
+        with patch('app.server.Tunnel', return_value=replacement), \
+                patch('app.server.port_listening', return_value=False):
+            with self.assertRaisesRegex(UserError, '重新打开控制台'):
+                self.controller.action('route', 'next')
+        self.assertEqual(self.settings.read_bytes(), broken)
+        self.assertEqual(self.controller.config, original_config)
+        self.assertIs(self.controller.tunnel, previous)
+        self.assertTrue(self.controller.connection_settings_conflicted)
+        self.assertFalse(previous.running)
+        previous.start.assert_not_called()
+        replacement.stop.assert_called_once()
+        for service, action in (('route', 'next'), ('model-route', 'keep-ollama-route'),
+                                ('sub2api', 'start'), ('ollama', 'start')):
+            with self.subTest(service=service), self.assertRaisesRegex(UserError, '重新打开控制台'):
+                self.controller.action(service, action)
+        self.controller.action('sub2api', 'stop')
+        self.assertEqual(previous.stop.call_count, 2)
+        self.assertEqual(self.settings.read_bytes(), broken)
+        self.assertFalse(previous.running)
+
+    def test_removed_settings_after_start_failure_preserves_removal_and_original_memory(self):
+        original_config = copy.deepcopy(self.controller.config)
+        previous, replacement = self.fake_tunnel(running=True), self.fake_tunnel()
+        def remove_and_fail():
+            self.settings.unlink()
+            raise UserError('fixture new start failed after external settings removal')
+        replacement.start.side_effect = remove_and_fail
+        self.controller.tunnel = previous
+        with patch('app.server.Tunnel', return_value=replacement), \
+                patch('app.server.port_listening', return_value=False):
+            with self.assertRaisesRegex(UserError, '重新打开控制台'):
+                self.controller.action('route', 'next')
+        self.assertFalse(self.settings.exists())
+        self.assertEqual(self.controller.config, original_config)
+        self.assertIs(self.controller.tunnel, previous)
+        self.assertTrue(self.controller.connection_settings_conflicted)
+        previous.start.assert_not_called()
+        replacement.stop.assert_called_once()
+        with self.assertRaisesRegex(UserError, '重新打开控制台'):
+            self.controller.action('sub2api', 'start')
+        self.controller.action('sub2api', 'stop')
+        self.assertEqual(previous.stop.call_count, 2)
+        self.assertFalse(previous.running)
 
 
 if __name__ == '__main__':

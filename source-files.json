@@ -130,5 +130,13 @@
   "mac/console/app/route_profiles.py",
   "mac/console/tests/test_diagnostics.py",
   "mac/console/tests/test_route_profiles.py",
-  "mac/console/tests/panel-ui.cjs"
+  "mac/console/tests/panel-ui.cjs",
+  "mac/console/app/route_connectivity.py",
+  "mac/console/tests/test_route_connectivity.py",
+  "mac/console/tests/test_node_location.py",
+  "shared/node-policy.json",
+  "docs/双端功能总览.md",
+  "mac/console/app/vps_nodes.py",
+  "mac/console/tests/test_vps_nodes.py",
+  "mac/console/tests/test_vps_api.py"
 ]

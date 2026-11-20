@@ -31,6 +31,7 @@ from .core import FileLock, Tunnel, UserError, atomic_write, opener, port_open, 
 from .releases import REPOSITORY, UpdateError, discover
 from .diagnostics import Diagnostics, TTL, age, local_url, now, ollama_models
 from .route_profiles import list_routes, manage_route, settings_lock_path
+from .vps_nodes import list_nodes, manage_node
 
 WEB = Path(__file__).with_name("web")
 
@@ -94,6 +95,9 @@ class Controller:
         self.health_signatures = {}
         self.active_chats = 0
         self.chat_sessions = {}
+        self.route_checks = {}
+        self.route_check_lock = threading.Lock()
+        self.connection_settings_conflicted = False
         self.cancelled_chat_ids = {}
         self.closing = False
         self.connections_stopped = False
@@ -305,6 +309,9 @@ class Controller:
                          else contextlib.nullcontext()):
             if self.closing and action not in ("stop",):
                 raise UserError("正在全部退出，请等待连接停止。")
+            if (self.connection_settings_conflicted and service in ("route", "model-route", "sub2api", "ollama")
+                    and action != "stop"):
+                raise UserError("连接设置已被其他程序修改，请重新打开控制台后再操作；关闭连接仍可使用。")
             if (self.active_chats and not self.closing and
                     (service in ("model-route", "route") or (service == "ollama" and action == "stop"))):
                 raise UserError("网页聊天正在生成，请结束后再切换线路或停止 Ollama；全部退出仍可停止连接。")
@@ -318,11 +325,17 @@ class Controller:
                 profiles = self.config.get("sub2api_profiles", {})
                 if action not in profiles:
                     raise UserError("未找到该连接配置。")
-                if action == self.config.get("selected_route"):
+                if (action == self.config.get("selected_route") and
+                        {k: v for k, v in profiles[action].items() if k not in ("display_name", "country", "city")} ==
+                        {k: v for k, v in self.config.get("sub2api", {}).items() if k not in ("display_name", "country", "city")}):
                     return "已使用该连接配置。"
                 # Do not overwrite a concurrent edit in another console/editor.
-                original = self.config_path.read_bytes()
-                if json.loads(original) != self.config:
+                try:
+                    original = self.config_path.read_bytes()
+                    matches_settings = json.loads(original) == self.config
+                except (OSError, ValueError, UnicodeError):
+                    matches_settings = False
+                if not matches_settings:
                     raise UserError("连接设置已在其他窗口修改，请重新打开控制台后再切换。")
                 current = self.config.get("sub2api", {})
                 if (current.get("mode") == "stcp" and not self.tunnel.running and
@@ -333,15 +346,55 @@ class Controller:
                 candidate["sub2api"] = profiles[action].copy()
                 backup = self.runtime / "backups" / ("sub2api-route-" + str(time.time_ns()) + ".json")
                 atomic_write(backup, original)
-                self.tunnel.stop()
-                if self.config_path.read_bytes() != original:
-                    raise UserError("连接设置已更新，保留其他窗口修改；原隧道已停止，请重新打开控制台。")
-                write_json(self.config_path, candidate)
-                self.config = candidate
-                self.tunnel = Tunnel(self.config["sub2api"], self.runtime)
+                previous_tunnel = self.tunnel
+                was_running = previous_tunnel.running
+                written = False
+                try:
+                    previous_tunnel.stop()
+                    if self.config_path.read_bytes() != original:
+                        raise UserError("连接设置已更新，未覆盖其他窗口修改。")
+                    write_json(self.config_path, candidate)
+                    written = True
+                    self.config = candidate
+                    self.tunnel = Tunnel(self.config["sub2api"], self.runtime)
+                    if was_running:
+                        self.tunnel.start()
+                except Exception:
+                    if written:
+                        try:
+                            self.tunnel.stop()
+                        except Exception:
+                            pass
+                    try:
+                        current = self.config_path.read_bytes()
+                        is_ours = json.loads(current) == candidate
+                    except (OSError, ValueError, UnicodeError):
+                        is_ours = False
+                    if written and is_ours:
+                        try:
+                            atomic_write(self.config_path, original)
+                        except OSError:
+                            pass
+                    try:
+                        restored = self.config_path.read_bytes() == original
+                    except OSError:
+                        restored = False
+                    if restored:
+                        self.config = json.loads(original)
+                        self.tunnel = previous_tunnel
+                        if was_running:
+                            try:
+                                previous_tunnel.start()
+                            except Exception:
+                                raise UserError("切换失败，原设置已恢复，但连接未能重启。") from None
+                        raise UserError("切换失败，原连接设置已恢复。") from None
+                    self.config = json.loads(original)
+                    self.tunnel = previous_tunnel
+                    self.connection_settings_conflicted = True
+                    raise UserError("切换未完成，保留了其他程序的修改；请重新打开控制台。") from None
                 self.codex.settings = self.config["sub2api"]
                 self.sub2api_check = {"state": "unchecked", "detail": "尚未检查远端 API"}
-                return "已选择 Sub2API 连接，请按需开启；再在 CC Switch 选择对应供应商。"
+                return "已应用 Sub2API 节点；" + ("连接已重启。" if was_running else "连接保持关闭。")
             if service == "sub2api":
                 if action in ("start", "stop"):
                     message = self.tunnel.start() if action == "start" else self.tunnel.stop()
@@ -501,6 +554,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send(200, self.server.controller.preferences())
             elif route == "/api/routes":
                 self.send(200, list_routes(self.server.controller, query.get("service", [""])[0]))
+            elif route == "/api/vps-nodes":
+                self.send(200, list_nodes(self.server.controller))
             elif route == "/api/models":
                 self.send(200, self.server.controller.models())
             else:
@@ -556,6 +611,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if self.path == "/api/routes":
                 self.send(200, manage_route(self.server.controller, data))
+                return
+            if self.path == "/api/vps-nodes":
+                self.send(200, manage_node(self.server.controller, data))
                 return
             if self.path != "/api/action":
                 raise UserError("不支持的操作。")

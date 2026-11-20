@@ -1,2 +1,2 @@
 """Local AI Console: private configuration, independently controlled services."""
-VERSION = "0.2.0-preview.5"
+VERSION = "0.2.0-preview.6"
