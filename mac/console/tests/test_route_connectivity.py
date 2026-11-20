@@ -217,7 +217,10 @@ class NodeConnectivityTests(unittest.TestCase):
             self.assertEqual(result["ping"]["state"], "unavailable")
         with patch.object(connectivity, "_ping", return_value=connectivity._result("unavailable")):
             closed = connectivity.probe_node("127.0.0.1", port)
-        self.assertEqual(closed["tcp"]["state"], "failed")
+        # A closed port must remain unreachable. Windows may hit the short
+        # connect deadline before reporting that the connection was refused.
+        self.assertIn(closed["tcp"]["state"], ("failed", "timeout"))
+        self.assertIsNone(closed["tcp"]["latency_ms"])
 
 
 if __name__ == "__main__":
