@@ -24,6 +24,22 @@ let chatMode = 'complete';
 let actionDelay = 0;
 let diagnosticDelay = 0;
 let networkDelay = 0;
+let importFailure = false;
+let nodeReadGate = null;
+function holdNodeReads() {
+  let release, entered;
+  const gate = {wait: new Promise(resolve => { release = resolve; }),
+    started: new Promise(resolve => { entered = resolve; }), entered: () => entered()};
+  gate.release = () => { if (nodeReadGate === gate) nodeReadGate = null;release(); };
+  nodeReadGate = gate;
+  return gate;
+}
+async function waitForHeldRead(gate) {
+  let timeout;
+  try { await Promise.race([gate.started, new Promise((_, reject) => {
+    timeout = setTimeout(() => reject(Error('expected delayed node GET did not start')), 5000);
+  })]); } finally { clearTimeout(timeout); }
+}
 const locationDelays = new Map();
 let pingState = 'ok';
 let authModels = [];
@@ -86,9 +102,15 @@ const server = http.createServer(async (req, res) => {
     return json({default_model: defaultModel});
   }
   if (url.pathname === '/api/vps-nodes') {
-    if (!payload) return json(sharedSnapshot());
+    if (!payload) {
+      const gate = nodeReadGate;
+      if (gate) { gate.entered();await gate.wait; }
+      return json(sharedSnapshot());
+    }
     assert.equal(req.headers['x-local-csrf'], 'fixture-csrf');
     const item = sharedItems.find(value => value.id === payload.id);
+    if (payload.visitor_toml && importFailure) return json({error: 'fixture invalid TOML: fix and retry'}, 400);
+    if (payload.visitor_toml && 'name' in payload && !payload.name.trim()) return json({error: 'fixture contract: empty name must be omitted'}, 400);
     if (payload.action === 'location') {
       const host = payload.server_addr || item?.server_addr;
       if (locationDelays.get(host)) await new Promise(resolve => setTimeout(resolve, locationDelays.get(host)));
@@ -114,12 +136,12 @@ const server = http.createServer(async (req, res) => {
       sharedItems = sharedItems.filter(value => value.id !== payload.id);
     } else if (payload.action === 'save' || payload.action === 'duplicate') {
       const fields = payload.fields?.common || {};
-      const host = fields.server_addr || (payload.visitor_toml ? 'imported.fixture.invalid' : item?.server_addr);
+      const host = fields.server_addr || (payload.visitor_toml ? /serverAddr\s*=\s*"([^"]+)"/.exec(payload.visitor_toml)?.[1] || 'imported.fixture.invalid' : item?.server_addr);
       const port = fields.server_port || item?.server_port || 7000;
       savedId = item && payload.action !== 'duplicate' && item.server_addr === host && item.server_port === port ? item.id : `saved-vps-${++routeCounter}`;
       if (sharedItems.some(value => value.id !== item?.id && value.server_addr === host && value.server_port === port)) return json({error: '节点已存在，请编辑现有节点'}, 409);
       const source = item || sharedItems[0];
-      const saved = {id: savedId, name: payload.name, server_addr: host, server_port: port,
+      const saved = {id: savedId, name: payload.name || host, server_addr: host, server_port: port,
         country: fields.country || '', city: fields.city || '',
         pending: !!item && Object.values(currentNodes).includes(item.id) && (item.pending || savedId !== item.id),
         services: structuredClone(source?.services || {ollama: {configured: true, provider: 'ollama_fixture', local_port: 11436}, sub2api: {configured: true, provider: 'sub2api_fixture', local_port: 18081}})};
@@ -171,7 +193,7 @@ const server = http.createServer(async (req, res) => {
 (async () => {
   let browser;
   const checks = [];
-  const layoutEvidence = {home: [], longText: [], manager: []};
+  const layoutEvidence = {home: [], longText: [], manager: [], import: [], picker: [], pendingLocks: []};
   const evidence = process.env.LOCAL_AI_EVIDENCE;
   if (evidence) fs.mkdirSync(evidence, {recursive: true});
   function sameTypography(items, label, width) {
@@ -203,6 +225,10 @@ const server = http.createServer(async (req, res) => {
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], {origin: base});
     await page.goto(base);
     await page.getByRole('status').filter({hasText: '就绪'}).waitFor();
+    assert.equal(await page.locator('.management>summary>span').count(), 0);
+    assert.doesNotMatch(await page.locator('footer').innerText(), /⌘|快捷键/);
+    assert.equal(await page.locator('#route-input-mode,#route-toml,#route-file,#route-country,#route-city,#route-check,#route-check-result,#route-copy-ip,#route-fixed-settings').count(), 0);
+    checks.push('redundant maintenance/footer text and obsolete import/manual-location/editor-check controls are removed from DOM');
     for (const width of [900, 720, 390]) {
       await page.setViewportSize({width, height: 700});
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -232,6 +258,7 @@ const server = http.createServer(async (req, res) => {
             cards.map(node => snapshot(node.querySelector(`.${name}`)))])),
           buttons: {
             switches: cards.map(node => snapshot(node.querySelector('.switch'))),
+            nodePickers: cards.map(node => snapshot(node.querySelector('.node-picker-open'))),
             diagnostics: ['#ollama-diagnostics', '#sub2api-check', '#sub2api-diagnostics']
               .map(selector => snapshot(document.querySelector(selector))),
             launch: [...document.querySelectorAll('.connection-grid .launch-actions .secondary')].map(snapshot)
@@ -354,16 +381,69 @@ const server = http.createServer(async (req, res) => {
     assert.match(await homeNode('vps-a').innerText(), /模型使用中/);
     assert.match(await homeNode('vps-b').innerText(), /Sub2 使用中/);
     assert.equal(await homeAction('vps-a', 'use').isDisabled(), false);
+    const initialApplyCount = requests.filter(item => item.payload?.action === 'apply').length;
+    const initialCurrent = structuredClone(currentNodes);
+    for (const [opener, selected] of [['#ollama-choose-node', 'vps-a'], ['#sub2api-choose-node', 'vps-b']]) {
+      await page.locator(opener).click();
+      assert.equal(await page.locator('#node-picker-select').inputValue(), selected);
+      assert.equal(await page.locator('#node-picker-select option').count(), 2);
+      await page.locator('#node-picker-select').selectOption(selected === 'vps-a' ? 'vps-b' : 'vps-a');
+      assert.deepEqual(currentNodes, initialCurrent);
+      assert.equal(requests.filter(item => item.payload?.action === 'apply').length, initialApplyCount);
+      for (const width of [900, 720, 390]) {
+        await page.setViewportSize({width, height: 700});
+        const dimensions = await page.locator('#node-picker').evaluate(node => {
+          const bounds = node.getBoundingClientRect();
+          return {width: innerWidth, left: bounds.left, right: bounds.right, scrollWidth: node.scrollWidth, clientWidth: node.clientWidth};
+        });
+        assert.ok(dimensions.left >= 0 && dimensions.right <= width && dimensions.scrollWidth <= dimensions.clientWidth);
+        layoutEvidence.picker.push({opener, ...dimensions});
+        if (evidence && opener === '#ollama-choose-node') await page.screenshot({path: path.join(evidence, `ui-node-picker-${width}.png`)});
+      }
+      await page.locator('#node-picker-cancel').click();
+      assert.equal(await page.locator('#node-picker').evaluate(node => node.open), false);
+    }
+    await page.setViewportSize({width: 1000, height: 760});
     status.active_chats = 1;
     await page.locator('#refresh').click();
     await page.waitForFunction(() => !document.querySelector('#ollama-guard').hidden);
     assert.equal(await homeAction('vps-b', 'use').isDisabled(), true);
+    assert.equal(await page.locator('#ollama-choose-node').isDisabled(), true);
+    assert.equal(await page.locator('#sub2api-choose-node').isDisabled(), true);
     status.active_chats = 0;
     status.sub2api.running = false;
     await page.locator('#refresh').click();
     await page.waitForFunction(() => !document.querySelector('#vps-nodes [data-node-id="vps-b"] [data-node-action="use"]').disabled);
-    await homeAction('vps-b', 'use').click();
+    await page.locator('#ollama-choose-node').click();
+    await page.locator('#node-picker-select').selectOption('vps-b');
+    acceptDialogs = false;
+    await page.locator('#node-picker-use').click();
+    assert.deepEqual(currentNodes, initialCurrent);
+    assert.equal(requests.filter(item => item.payload?.action === 'apply').length, initialApplyCount);
+    assert.equal(await page.locator('#node-picker').evaluate(node => node.open), true);
+    acceptDialogs = true;
+    const pickerGate = holdNodeReads();
+    await page.locator('#node-picker-use').click({clickCount: 2, delay: 30});
+    await waitForHeldRead(pickerGate);
+    assert.deepEqual(currentNodes, {ollama: 'vps-b', sub2api: 'vps-b'}, 'apply POST has finished before delayed refresh');
+    for (const selector of ['#node-picker-select', '#node-picker-use', '#node-picker-close', '#node-picker-cancel']) {
+      assert.equal(await page.locator(selector).isDisabled(), true, `${selector} must stay locked while apply refresh is pending`);
+    }
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#node-picker').evaluate(node => node.open), true, 'Escape must not close pending apply');
+    await page.locator('#node-picker-use').evaluate(node => node.click());
+    assert.equal(requests.filter(item => item.payload?.action === 'apply').length, initialApplyCount + 1, 'double click/disabled click must not duplicate apply');
+    layoutEvidence.pendingLocks.push({stage: 'apply POST succeeded, refresh GET held', dialogOpen: true,
+      useSelectCloseCancelDisabled: true, escapePrevented: true, applyCount: 1});
+    pickerGate.release();
+    await page.waitForFunction(() => !document.querySelector('#node-picker').open);
     await page.waitForFunction(() => document.querySelector('#vps-nodes [data-node-id="vps-b"] .node-badge').textContent === '两条连接使用中');
+    assert.equal(requests.filter(item => item.payload?.action === 'apply').length, initialApplyCount + 1);
+    assert.equal(await homeNode('vps-a').locator('.node-badge').count(), 0);
+    await page.locator('#sub2api-choose-node').click();
+    assert.equal(await page.locator('#node-picker-use').isDisabled(), true);
+    assert.equal(await page.locator('#node-picker-use').innerText(), '当前使用中');
+    await page.locator('#node-picker-close').click();
     assert.deepEqual(currentNodes, {ollama: 'vps-b', sub2api: 'vps-b'});
     assert.equal(status.sub2api.running, false);
     assert.equal(dialogs.some(text => text.includes('已关闭的保持关闭')), true);
@@ -377,38 +457,40 @@ const server = http.createServer(async (req, res) => {
     await homeAction('vps-a', 'check').click();
     await page.waitForFunction(() => document.querySelector('#vps-nodes [data-node-id="vps-a"] .node-network')?.textContent.includes('Ping 超时'));
     pingState = 'ok';
-    checks.push('one shared VPS list and one manager; split current service nodes remain distinct until one explicit apply; apply changes both nodes and preserves an off connection; generation guard and actual clipboard');
+    checks.push('both service-card pickers use one pool; selection/cancel/rejected confirmation never applies; one confirmed click applies both with an off connection preserved; current option and active-chat guard prevent apply; apply POST-success/GET-pending keeps picker locked against double submit/close/Escape; no inactive backup badge; homepage check and clipboard work');
 
     await page.locator('#manage-vps-nodes').click();
     const managerNode = id => page.locator(`#routes-list [data-node-id="${id}"]`);
     await managerNode('vps-b').waitFor();
     assert.equal(await page.locator('#route-name').inputValue(), '节点 B');
-    assert.equal(await page.locator('#route-country').isVisible(), false);
-    assert.equal(await page.locator('#route-city').isVisible(), false);
+    assert.equal(await page.locator('#route-country,#route-city').count(), 0);
     assert.equal(await page.locator('#route-delete').isDisabled(), true);
     await page.locator('#route-name').fill('Renamed shared node');
     await page.locator('#route-save').click();
     await page.getByRole('status').filter({hasText: 'fixture 节点已保存'}).waitFor();
     assert.equal(requests.filter(item => item.payload?.action === 'save').at(-1).payload.id, 'vps-b');
     assert.equal(sharedItems.length, 2);
-    await page.locator('#route-check').click();
-    await page.waitForFunction(() => document.querySelector('#route-check-result').textContent.includes('Ping 23 ms'));
+    await page.locator('#routes-close').click();
+    await homeAction('vps-b', 'check').click();
+    await page.waitForFunction(() => document.querySelector('#vps-nodes [data-node-id="vps-b"] .node-network')?.textContent.includes('Ping 23 ms'));
+    await homeAction('vps-b', 'edit').click();
     await page.locator('#route-server').fill('changed.fixture.invalid');
-    assert.equal(await page.locator('#route-check').isDisabled(), true);
     await page.locator('#route-save').click();
     await page.getByRole('status').filter({hasText: '已保存。点'}).waitFor();
-    let changedId = requests.filter(item => item.payload?.action === 'save').at(-1);
-    changedId = sharedItems.find(item => item.server_addr === 'changed.fixture.invalid').id;
-    assert.equal(await page.locator('#route-check-result').innerText(), '未检测');
+    const changedId = sharedItems.find(item => item.server_addr === 'changed.fixture.invalid').id;
     assert.equal((await homeNode(changedId).innerText()).includes('Ping 23 ms'), false);
+    assert.equal(await page.locator('#route-item-detail').innerText(), '待应用');
+    await page.locator('#routes-close').click();
     networkDelay = 600;
-    await page.locator('#route-check').click();
-    await page.waitForFunction(() => document.querySelector('#route-check-result').textContent === '检测中…');
+    await homeAction(changedId, 'check').click();
+    await page.waitForFunction(id => document.querySelector(`#vps-nodes [data-node-id="${id}"] .node-network`)?.textContent === '检测中…', changedId);
+    await homeAction(changedId, 'edit').click();
     await page.locator('#route-server').fill('newer.fixture.invalid');
     await page.locator('#route-save').click();
     await page.getByRole('status').filter({hasText: '已保存。点'}).waitFor();
     await page.waitForTimeout(700);
-    assert.equal(await page.locator('#route-check-result').innerText(), '未检测');
+    const newerId = sharedItems.find(item => item.server_addr === 'newer.fixture.invalid').id;
+    assert.equal((await homeNode(newerId).innerText()).includes('Ping 23 ms'), false);
     networkDelay = 0;
     await page.locator('#route-save-use').click();
     await page.getByRole('status').filter({hasText: '节点已使用'}).waitFor();
@@ -480,16 +562,124 @@ const server = http.createServer(async (req, res) => {
     await page.waitForFunction(id => !document.querySelector(`#routes-list [data-node-id="${id}"]`), copiedId);
     checks.push('new common node inherits both service settings with name/IP only; independent advanced providers and secrets preserved; copying visitor keeps draft; direct node switch cancel preserves draft; explicit copied node can be removed');
 
+    await page.locator('#route-new').click();
+    await page.locator('#route-name').fill('Endpoint parsing fixture');
+    const endpointCases = [
+      {input: '192.0.2.55:7101', host: '192.0.2.55', port: 7101},
+      {input: '[2001:db8::55]:7102', host: '2001:db8::55', port: 7102},
+      {input: '2001:db8::56', host: '2001:db8::56', port: 7102},
+      {input: 'backup.fixture.invalid:7103', host: 'backup.fixture.invalid', port: 7103},
+      {input: '192.0.2.56', host: '192.0.2.56', port: 7103}
+    ];
+    for (const endpoint of endpointCases) {
+      await page.locator('#route-server').fill(endpoint.input);
+      assert.equal(await page.locator('#route-port').inputValue(), String(endpoint.port));
+      assert.match(await page.locator('#route-endpoint-hint').innerText(), new RegExp(String(endpoint.port)));
+      const saved = page.waitForResponse(response => response.url().endsWith('/api/vps-nodes')
+        && response.request().method() === 'POST' && response.request().postDataJSON().action === 'save');
+      await page.locator('#route-save').click();await saved;
+      await page.waitForFunction(() => !document.querySelector('#route-save').disabled);
+      const actual = requests.filter(item => item.payload?.action === 'save').at(-1).payload.fields.common;
+      assert.equal(actual.server_addr, endpoint.host);
+      assert.equal(actual.server_port, endpoint.port);
+    }
+    if (!await page.locator('#route-advanced').evaluate(node => node.open)) await page.locator('#route-advanced>summary').click();
+    await page.locator('#route-port').fill('7104');
+    assert.equal(await page.locator('#route-server').inputValue(), '192.0.2.56:7104');
+    const savedCount = requests.filter(item => item.payload?.action === 'save').length;
+    for (const invalid of ['192.0.2.55:0', '192.0.2.55:65536', '[2001:db8::55]:abc', 'https://backup.fixture.invalid:7000/v1']) {
+      await page.locator('#route-server').fill(invalid);
+      await page.locator('#route-save').click();
+      assert.equal(await page.locator('#route-server').evaluate(node => node.validity.valid), false);
+      assert.equal(await page.locator('#route-server').inputValue(), invalid);
+      assert.equal(requests.filter(item => item.payload?.action === 'save').length, savedCount);
+    }
+    await page.locator('#route-edit-cancel').click();
+    checks.push('IP:port and bracketed IPv6:port save actual parsed host/integer port; bare IPv6/domain/IP supported; advanced port synchronizes endpoint; invalid endpoints block save and preserve draft');
+
     await page.locator('#route-import').click();
-    await page.locator('#route-name').fill('Imported visitor');
+    assert.equal(await page.locator('#route-import-dialog').evaluate(node => node.open), true);
+    assert.equal(await page.locator('#route-manager').evaluate(node => node.open), true);
+    await page.locator('#route-import-name').fill('Imported visitor');
     const importedTOML = 'serverAddr = "fixture.invalid"\n# fixture visitor only\n';
-    await page.locator('#route-file').setInputFiles({name: 'fixture-visitor.toml', mimeType: 'text/plain', buffer: Buffer.from(importedTOML)});
-    await page.waitForFunction(() => document.querySelector('#route-toml').value.includes('fixture visitor only'));
-    await page.locator('#route-save').click();
+    await page.locator('#route-import-code').fill(importedTOML);
+    const importCurrent = structuredClone(currentNodes);
+    const importApplyCount = requests.filter(item => item.payload?.action === 'apply').length;
+    for (const width of [900, 720, 390]) {
+      await page.setViewportSize({width, height: 700});
+      await page.locator('#route-import-save').scrollIntoViewIfNeeded();
+      const dimensions = await page.locator('#route-import-dialog').evaluate(node => {
+        const box = node.getBoundingClientRect(), button = document.querySelector('#route-import-save').getBoundingClientRect();
+        const hit = document.elementFromPoint(button.left + button.width / 2, button.top + button.height / 2);
+        return {width: innerWidth, left: box.left, right: box.right, scrollWidth: node.scrollWidth, clientWidth: node.clientWidth,
+          saveVisible: button.top >= box.top && button.bottom <= box.bottom && button.top >= 0 && button.bottom <= innerHeight,
+          saveHit: hit?.closest('button')?.id === 'route-import-save'};
+      });
+      assert.ok(dimensions.left >= 0 && dimensions.right <= width && dimensions.scrollWidth <= dimensions.clientWidth);
+      assert.ok(dimensions.saveVisible && dimensions.saveHit);
+      layoutEvidence.import.push(dimensions);
+      if (evidence) await page.screenshot({path: path.join(evidence, `ui-import-${width}.png`)});
+    }
+    await page.setViewportSize({width: 1000, height: 760});
+    importFailure = true;
+    await page.locator('#route-import-save').click();
+    await page.locator('#route-import-message').filter({hasText: 'fixture invalid TOML'}).waitFor();
+    assert.equal(await page.locator('#route-import-code').inputValue(), importedTOML);
+    assert.equal(await page.locator('#route-import-name').inputValue(), 'Imported visitor');
+    assert.equal(await page.locator('#route-import-dialog').evaluate(node => node.open), true);
+    assert.deepEqual(currentNodes, importCurrent);
+    importFailure = false;
+    const importGate = holdNodeReads();
+    const importSavesBefore = requests.filter(item => item.payload?.visitor_toml).length;
+    await page.locator('#route-import-save').click({clickCount: 2, delay: 30});
+    await waitForHeldRead(importGate);
+    async function assertImportPending(stage) {
+      assert.equal(await page.locator('#route-import-dialog').evaluate(node => node.open), true, `${stage}: import stays open until node reload completes`);
+      for (const selector of ['#route-import-name', '#route-import-code', '#route-import-save', '#route-import-cancel', '#route-import-close', '#route-new', '#route-import', '#route-name', '#route-save']) {
+        assert.equal(await page.locator(selector).isDisabled(), true, `${stage}: ${selector} remains locked`);
+      }
+      await page.keyboard.press('Escape');
+      assert.equal(await page.locator('#route-import-dialog').evaluate(node => node.open), true, `${stage}: Escape cannot close pending import`);
+      await page.locator('#route-import-save').evaluate(node => node.click());
+      assert.equal(await page.locator('#route-import-code').inputValue(), importedTOML);
+      assert.equal(requests.filter(item => item.payload?.visitor_toml).length, importSavesBefore + 1, `${stage}: only one import save`);
+      layoutEvidence.pendingLocks.push({stage, dialogOpen: true, formAndManagerDisabled: true,
+        escapePrevented: true, originalCodePreserved: true, saveCount: 1});
+    }
+    assert.ok(sharedItems.some(item => item.server_addr === 'fixture.invalid'), 'import POST finished before delayed refresh');
+    await assertImportPending('import POST succeeded, refresh GET held');
+    const reloadGate = holdNodeReads();
+    importGate.release();
+    await waitForHeldRead(reloadGate);
+    await assertImportPending('import refresh finished, manager reload GET held');
+    reloadGate.release();
+    await page.waitForFunction(() => !document.querySelector('#route-import-dialog').open);
     await page.getByRole('status').filter({hasText: 'fixture 节点已保存'}).waitFor();
-    assert.equal(requests.filter(item => item.payload?.visitor_toml).at(-1).payload.visitor_toml, importedTOML);
-    assert.equal(await page.locator('#route-toml').inputValue(), '');
-    const importId = sharedItems.at(-1).id;
+    const importPayload = requests.filter(item => item.payload?.visitor_toml).at(-1).payload;
+    assert.deepEqual(importPayload, {action: 'save', name: 'Imported visitor', visitor_toml: importedTOML});
+    assert.equal(await page.locator('#route-import-code').inputValue(), '');
+    assert.equal(await page.locator('#route-import-name').inputValue(), '');
+    assert.deepEqual(currentNodes, importCurrent);
+    assert.equal(requests.filter(item => item.payload?.action === 'apply').length, importApplyCount);
+    await page.locator('#route-import').click();
+    assert.equal(await page.locator('#route-import-code').inputValue(), '');
+    await page.locator('#route-import-code').fill('cancelled fixture draft');
+    await page.locator('#route-import-cancel').click();
+    await page.waitForFunction(() => document.querySelector('#route-import-code').value === '');
+    assert.equal(await page.locator('#route-import-code').inputValue(), '');
+    await page.locator('#route-import').click();
+    await page.locator('#route-import-name').fill('   ');
+    const unnamedTOML = 'serverAddr = "unnamed.fixture.invalid"\n# name supplied by backend\n';
+    await page.locator('#route-import-code').fill(unnamedTOML);
+    await page.locator('#route-import-save').click();
+    await page.waitForFunction(() => !document.querySelector('#route-import-dialog').open);
+    await page.getByRole('status').filter({hasText: 'fixture 节点已保存'}).waitFor();
+    assert.deepEqual(requests.filter(item => item.payload?.visitor_toml).at(-1).payload,
+      {action: 'save', visitor_toml: unnamedTOML}, 'blank optional name is omitted, never sent as empty string');
+    assert.ok(sharedItems.some(item => item.server_addr === 'unnamed.fixture.invalid' && item.name === 'unnamed.fixture.invalid'));
+    assert.deepEqual(currentNodes, importCurrent);
+    assert.equal(requests.filter(item => item.payload?.action === 'apply').length, importApplyCount);
+    checks.push('dedicated TOML import dialog stays usable at 900/720/390px; failure preserves code/name; POST-success/refresh-and-reload-pending keeps dialog and all editing locked against duplicate/close/Escape; success clears; blank optional name omitted; import never applies or edits current node; cancel clears draft');
     locationDelays.set('9.9.9.9', 400);
     await page.locator('#route-server').fill('9.9.9.9');
     const unknownSaved = page.waitForResponse(response => response.url().endsWith('/api/vps-nodes')
@@ -728,6 +918,7 @@ const server = http.createServer(async (req, res) => {
     }
     throw error;
   } finally {
+    nodeReadGate?.release();
     if (browser) await browser.close();
     server.closeAllConnections?.();
     await new Promise(resolve => server.close(resolve));
